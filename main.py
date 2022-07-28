@@ -1,4 +1,6 @@
 import random
+import sys
+import time
 from typing import List
 
 import matplotlib.pyplot as plt
@@ -10,6 +12,12 @@ class Block:
     def __init__(self, creator, bid):
         self.creator = creator
         self.id = bid
+
+    def __str__(self):
+        return f'{self.id} ({self.creator})'
+
+    def __repr__(self):
+        return self.__str__()
 
 
 def plot_relative_reward(power_list, rewards, selfish_pool=None):
@@ -75,50 +83,62 @@ def generate_network_and_pools(N: int, n_k: list, p_k: list = None):
 def mine(G: nx.Graph, pools: List[nx.Graph], min_time: int, edge_time, tie_breaking='first'):
     def init_actions(t):
         if t not in actions:
-            actions[t] = {'mine': [], 'rec': [], 'pending': []}
+            actions[t] = {'mine': [], 'receive': [], 'pending': []}
 
     def send_message(node, origin=None):
         # this function alerts other miners of the creation of a new block
-        receive_time = time + edge_time
+        receive_time = t + edge_time
         init_actions(receive_time)
         neighbors = set(G.neighbors(node))
         if origin is not None:
-            neighbors.remove(origin)
+            neighbors -= set([origin])
             if n2p[node] != n2p[origin]:
-                neighbors.union(n2p[node].nodes)
-                neighbors.remove(node)
+                neighbors = (neighbors | n2p[node].nodes) - set([node])
 
         for neighbor in neighbors:
-            G[neighbor]['message'] = G[node]['blockchain']  # copy?
-            G[neighbor]['sender'] = node
+            G.nodes[neighbor]['message'] = G.nodes[node]['blockchain'].copy()
+            G.nodes[neighbor]['sender'] = node
             actions[receive_time]['receive'].append(neighbor)
 
-    n2p = {node: i for i, pool in enumerate(pools) for node in pool}
+    n2p = {node: pool for pool in pools for node in pool}
     for pool in pools:
         for node in pool:
-            G[node]['blockchain'] = []
-            G[node]['seen'] = []
+            G.nodes[node]['blockchain'] = [Block(None, 0)]
+            G.nodes[node]['seen'] = []
 
     last_block_id = 0
     actions = {0: {'pending': [node for node in G], 'receive': [], 'mine': []}}
+    last_blocks = [0 for _ in G]
     n2mt = {}
-    time = 0
+    t = 0
     forked = False
-    while time < min_time or forked:
-        time = min(actions)
-        for node in actions[time]['mine']:
+    start = time.time()
+    while t < min_time or forked:
+        t = min(actions)
+        frac = t / min_time
+        if frac > 0:
+            sys.stdout.write('\r[{}{}] {:.2f}/{} [{:.2f}%] {:.2f}s'
+                             .format(int(frac * 50) * '#', int((1 - frac) * 50) * '-',
+                                     t, min_time, frac * 100,
+                                     time.time() - start))
+
+        for node in actions[t]['mine']:
             last_block_id += 1
             new_block = Block(node, last_block_id)
-            G[node]['blockchain'].append(new_block)
+            G.nodes[node]['blockchain'].append(new_block)
+            G.nodes[node]['seen'].append(last_block_id)
+            last_blocks[node] = last_block_id
             send_message(node)
+            actions[t]['pending'].append(node)
 
-        for node in actions[time]['receive']:
+        for node in actions[t]['receive']:
             # do 'message' and 'sender' need to be cleared?
-            new_blockchain = G[node]['message']
-            node_blockchain = G[node]['blockchain']
-            block_id = G[node]['blockchain'][-1].id
-            if not block_id in G[node]['seen']:
-                G[node]['seen'].append(G[node]['blockchain'][-1].id)
+            node_attr = G.nodes[node]
+            new_blockchain = node_attr['message']
+            node_blockchain = node_attr['blockchain']
+            block_id = new_blockchain[-1].id
+            if block_id not in node_attr['seen']:
+                node_attr['seen'].append(block_id)
                 if len(new_blockchain) > len(node_blockchain):
                     accept = True
                 elif len(new_blockchain) == len(node_blockchain) and tie_breaking == 'random':
@@ -127,33 +147,41 @@ def mine(G: nx.Graph, pools: List[nx.Graph], min_time: int, edge_time, tie_break
                     accept = False
 
                 if accept:
-                    G[node]['blockchain'] = new_blockchain
-                    send_message(node, G[node]['sender'])
-                    actions[time]['pending'].append(node)
-                    actions[n2mt[node]]['mine'].remove(node)
+                    G.nodes[node]['blockchain'] = new_blockchain
+                    send_message(node, G.nodes[node]['sender'])
+                    actions[t]['pending'].append(node)
+                    if node in n2mt:
+                        actions[n2mt[node]]['mine'].remove(node)
+                        n2mt.pop(node)
+                    last_blocks[node] = block_id
 
-        mining_power = np.array([node['power'] for node in actions[time]['pending']])
+        mining_power = np.array([G.nodes[node]['power'] for node in actions[t]['pending']])
         mining_times = np.random.exponential(mining_power ** -1)
-        for node, compute_time in zip(actions[time], mining_times):
-            mine_time = time + compute_time
+        for node, compute_time in zip(actions[t]['pending'], mining_times):
+            mine_time = t + compute_time
             init_actions(mine_time)
             actions[mine_time]['mine'].append(node)
             n2mt[node] = mine_time
-        actions.pop(time)
+        actions.pop(t)
+        forked = any(item != last_blocks[0] for item in last_blocks)
 
-    rewards = np.zeros(len(pools))
+    rewards = dict.fromkeys(pools, 0)
+    blockchain = G.nodes[0]['blockchain']
+    for block in blockchain[1:]:  # ignoring the 1st block
+        rewards[n2p[block.creator]] += 1
+    rewards = np.array(list(rewards.values()))
     relative_rewards = rewards / rewards.sum()
     return relative_rewards
 
 
 def main():
-    N = 3
+    N = 100
     message_time = 0.01
-    T = 10
+    T = 1000
     random.seed(42)
     np.random.seed(42)
 
-    G, pools, node_powers, pool_powers = generate_network_and_pools(N, [1])
+    G, pools, node_powers, pool_powers = generate_network_and_pools(N, [30, 20, 15])
     rel_rewards = mine(G, pools, T, message_time)
     plot_relative_reward(pool_powers, rel_rewards)
 
