@@ -1,3 +1,6 @@
+import argparse
+import logging
+import math
 import random
 import sys
 import time
@@ -102,9 +105,11 @@ def mine(G: nx.Graph, pools: List[nx.Graph], min_time: int, edge_time, tie_break
 
     def send_message(node, origin=None):
         # this function alerts other miners of the creation of a new block
-        receive_time = t + edge_time
+        receive_time = t + message_time
         init_actions(receive_time)
         neighbors = set(G.neighbors(node))
+        message = G.nodes[node]['blockchain'].copy()
+        block_id = message[-1].id
         if origin is not None:
             neighbors -= set([origin])
             if n2p[node] != n2p[origin]:
@@ -189,12 +194,39 @@ def mine(G: nx.Graph, pools: List[nx.Graph], min_time: int, edge_time, tie_break
     return relative_rewards
 
 
+def parse_args(parser_args=None):
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-N', '--num-nodes', type=int, default=1000)
+    parser.add_argument('-T', '--turns', type=int, default=1000)
+    parser.add_argument('--num-pools', type=int)
+    parser.add_argument('--pool-powers', type=float, nargs='*')
+    parser.add_argument('--pools', nargs='*')
+    parser.add_argument('--pool-connectivity', type=float)
+
+    parser.add_argument('--message-time', type=float, default=0.01)
+    parser.add_argument('--tie-breaking', type=str, choices=['first', 'random'])
+    parser.add_argument('--selfish-mining', action='store_true')  # TODO implement
+    parser.add_argument('--banning', action='store_true')  # TODO implement
+
+    parser.add_argument('-s', '--seed', type=int, default=42, help='random seed')
+    parser.add_argument('--dynamic-progress', action='store_true')
+
+    args = parser.parse_args(args=parser_args)
+
+    pools = []
+    for n in args.pools:
+        try:
+            pools.append(int(n))
+        except ValueError:
+            n = int(float(n) * args.num_nodes)
+            pools.append(n)
+    args.pools = pools
+    return args
+
+
 def main():
-    N = 100
-    message_time = 0.01
-    T = 1000
-    random.seed(42)
-    np.random.seed(42)
+    args = parse_args(None)
+    logging.getLogger().setLevel('INFO')
 
     G, pools, node_powers, pool_powers = generate_network_and_pools(N, [30, 20, 15])
     rel_rewards = mine(G, pools, T, message_time)
