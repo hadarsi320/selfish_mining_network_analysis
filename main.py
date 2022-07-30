@@ -122,7 +122,8 @@ def print_progress(t, min_time, start, forked, dynamic_progress=True):
                 print(message)
 
 
-def mine(G: nx.Graph, pools: List[nx.Graph], min_time: int, edge_time, tie_breaking='first'):
+def mine(G: nx.Graph, pools: List[nx.Graph], min_time: int, max_time: int, message_time, tie_breaking,
+         dynamic_progress=True, eps=1e-3):
     def init_actions(t):
         if t not in actions:
             actions[t] = {'mine': [], 'receive': [], 'pending': []}
@@ -135,15 +136,16 @@ def mine(G: nx.Graph, pools: List[nx.Graph], min_time: int, edge_time, tie_break
         message = G.nodes[node]['blockchain'].copy()
         block_id = message[-1].id
         if origin is not None:
-            neighbors -= set([origin])
-            if n2p[node] != n2p[origin]:
-                neighbors = (neighbors | n2p[node].nodes) - set([node])
+            neighbors.remove(origin)
 
         for neighbor in neighbors:
-            G.nodes[neighbor]['message'] = G.nodes[node]['blockchain'].copy()
-            G.nodes[neighbor]['sender'] = node
-            actions[receive_time]['receive'].append(neighbor)
+            neighbor_attr = G.nodes[neighbor]
+            if block_id not in neighbor_attr['seen']:
+                neighbor_attr['message'] = message
+                neighbor_attr['sender'] = node
+                actions[receive_time]['receive'].append(neighbor)
 
+    ndigits = -int(math.log10(eps))
     n2p = {node: pool for pool in pools for node in pool}
     for pool in pools:
         for node in pool:
@@ -154,60 +156,62 @@ def mine(G: nx.Graph, pools: List[nx.Graph], min_time: int, edge_time, tie_break
     actions = {0: {'pending': [node for node in G], 'receive': [], 'mine': []}}
     last_blocks = [0 for _ in G]
     n2mt = {}
+
+    times = iter(np.arange(0, min_time * 2, eps).round(ndigits))
     t = 0
     forked = False
+    forked_time = 0
     start = time.time()
-    while t < min_time or forked:
-        t = min(actions)
-        frac = t / min_time
-        if frac > 0:
-            sys.stdout.write('\r[{}{}] {:.2f}/{} [{:.2f}%] {:.2f}s'
-                             .format(int(frac * 50) * '#', int((1 - frac) * 50) * '-',
-                                     t, min_time, frac * 100,
-                                     time.time() - start))
+    while t < min_time or (t < max_time and forked):
+        t = next(times)
+        if t in actions:
+            actions_t = actions.pop(t)
+            print_progress(t, min_time, start, False, dynamic_progress=dynamic_progress)
+            for node in actions_t['mine']:
+                last_block_id += 1
+                new_block = Block(node, last_block_id)
+                G.nodes[node]['blockchain'].append(new_block)
+                G.nodes[node]['seen'].append(last_block_id)
+                last_blocks[node] = last_block_id
+                send_message(node)
+                actions_t['pending'].append(node)
 
-        for node in actions[t]['mine']:
-            last_block_id += 1
-            new_block = Block(node, last_block_id)
-            G.nodes[node]['blockchain'].append(new_block)
-            G.nodes[node]['seen'].append(last_block_id)
-            last_blocks[node] = last_block_id
-            send_message(node)
-            actions[t]['pending'].append(node)
+            for node in actions_t['receive']:
+                # do 'message' and 'sender' need to be cleared?
+                node_attr = G.nodes[node]
+                new_blockchain = node_attr['message']
+                node_blockchain = node_attr['blockchain']
+                block_id = new_blockchain[-1].id
+                if block_id not in node_attr['seen']:
+                    node_attr['seen'].append(block_id)
+                    if len(new_blockchain) > len(node_blockchain):
+                        accept = True
+                    elif len(new_blockchain) == len(node_blockchain) and tie_breaking == 'random':
+                        accept = random.random() > 0.5
+                    else:
+                        accept = False
 
-        for node in actions[t]['receive']:
-            # do 'message' and 'sender' need to be cleared?
-            node_attr = G.nodes[node]
-            new_blockchain = node_attr['message']
-            node_blockchain = node_attr['blockchain']
-            block_id = new_blockchain[-1].id
-            if block_id not in node_attr['seen']:
-                node_attr['seen'].append(block_id)
-                if len(new_blockchain) > len(node_blockchain):
-                    accept = True
-                elif len(new_blockchain) == len(node_blockchain) and tie_breaking == 'random':
-                    accept = random.random() > 0.5
-                else:
-                    accept = False
+                    if accept:
+                        G.nodes[node]['blockchain'] = new_blockchain
+                        send_message(node, G.nodes[node]['sender'])
+                        actions_t['pending'].append(node)
+                        if node in n2mt:
+                            actions[n2mt[node]]['mine'].remove(node)
+                            n2mt.pop(node)
+                        last_blocks[node] = block_id
 
-                if accept:
-                    G.nodes[node]['blockchain'] = new_blockchain
-                    send_message(node, G.nodes[node]['sender'])
-                    actions[t]['pending'].append(node)
-                    if node in n2mt:
-                        actions[n2mt[node]]['mine'].remove(node)
-                        n2mt.pop(node)
-                    last_blocks[node] = block_id
-
-        mining_power = np.array([G.nodes[node]['power'] for node in actions[t]['pending']])
-        mining_times = np.random.exponential(mining_power ** -1)
-        for node, compute_time in zip(actions[t]['pending'], mining_times):
-            mine_time = t + compute_time
-            init_actions(mine_time)
-            actions[mine_time]['mine'].append(node)
-            n2mt[node] = mine_time
-        actions.pop(t)
-        forked = any(item != last_blocks[0] for item in last_blocks)
+            mining_power = np.array([G.nodes[node]['power'] for node in actions_t['pending']])
+            mining_times = np.random.exponential(mining_power ** -1).round(ndigits)
+            for node, compute_time in zip(actions_t['pending'], mining_times):
+                mine_time = t + compute_time
+                init_actions(mine_time)
+                actions[mine_time]['mine'].append(node)
+                n2mt[node] = mine_time
+            forked = any(item != last_blocks[0] for item in last_blocks)
+            if forked:
+                forked_time += eps
+    finish = t
+    logging.info('{:.2f}% of the time the blockchain was forked'.format(forked_time / finish * 100))
 
     rewards = dict.fromkeys(pools, 0)
     blockchain = G.nodes[0]['blockchain']
@@ -215,7 +219,7 @@ def mine(G: nx.Graph, pools: List[nx.Graph], min_time: int, edge_time, tie_break
         rewards[n2p[block.creator]] += 1
     rewards = np.array(list(rewards.values()))
     relative_rewards = rewards / rewards.sum()
-    return relative_rewards
+    return relative_rewards, forked_time / finish
 
 
 def parse_args(parser_args=None):
