@@ -38,48 +38,60 @@ def plot_relative_reward(power_list, rewards, selfish_pool=None):
     plt.show()
 
 
-def generate_network_and_pools(N: int, n_k: list, p_k: list = None, pool_connectivity: float = None):
+def sample_sum_to(size, sum):
+    sizes = np.random.random(size)
+    sizes = sizes / sizes.sum() * sum
+    return sizes
+
+
+def generate_network_and_pools(num_nodes: int, num_pools: int, pool_powers: list = None, pool_sizes: list = None,
+                               pool_connectivity: float = None):
     """
     Generates a graph and distributes mining power through the graph
-    :param N: The total size of the graph
-    :param n_k: A list of the sizes of the pools in the graph
-    :param p_k: An optional list of the strength of the pools
-    :param pool_connectivity:
-    :return: An nx graph object of the entire network, and a list of subnetworks
+    :param num_nodes: The total size of the graph
+    :param num_pools: The number of pools in the network, must be at least 1, as the last pool is not an actual pool
+    and is just the rest of the nodes
+    :param pool_powers: An optional list of the strength of the pools
+    :param pool_sizes: A list of the sizes of the pools in the graph
+    :param pool_connectivity: ??
+    :return: An nx graph object of the entire network, and a list of subgraphs for each pool
     """
-    assert sum(n_k) <= N, 'The pools can\'t be larger than the network'
-    if p_k is not None:
-        assert sum(p_k) <= 1, f'The pools can\'t be stronger than the network, sum(powers) = {sum(p_k)} > 1'
-        assert (sum(n_k) < N) == (sum(p_k) < 1)
-        assert len(n_k) == len(p_k)
+    if pool_powers is None:
+        pool_powers = []
+    if pool_sizes is None:
+        pool_sizes = []
+
+    for _list in [pool_powers, pool_sizes]:
+        assert len(_list) <= num_pools, 'The list cannot have more objects than the number of pools'
+        if len(_list) < num_pools:
+            assert sum(_list) < 1
+            _list.extend(sample_sum_to(num_pools - len(_list), 1 - sum(_list)))
+        elif len(_list) == num_pools:
+            assert sum(_list) == 1
+        else:
+            raise ValueError('The list cannot have more objects than there are pools', f'[{_list=}]')
+
     if pool_connectivity is not None:
         assert 0 < pool_connectivity <= 1
 
-    if sum(n_k) < N:
-        n_k.append(N - sum(n_k))
-        if p_k is not None:
-            p_k.append(1 - sum(p_k))
-
-    G = nx.powerlaw_cluster_graph(N, 2, 0.1)
+    G = nx.powerlaw_cluster_graph(num_nodes, 2, 0.1)  # TODO set args
 
     nodes = random.sample(list(G.nodes), len(G))
     pools = []
-    for N_i in n_k:
-        pools.append(nodes[:N_i])
-        del nodes[:N_i]
+    for i, pool_size in enumerate(pool_sizes):
+        if i < num_pools - 1:
+            pool_size = int(pool_size * num_nodes)
+            pools.append(nodes[:pool_size])
+            del nodes[:pool_size]
+        else:
+            pools.append(nodes)
 
-    powers = np.random.random(len(G))
-    if p_k:
-        for pool, p in zip(pools, p_k):
-            powers[pool] = powers[pool] / powers[pool].sum() * p
-    else:
-        powers /= powers.sum()
+    powers = np.random.random(num_nodes)
+    for pool, pool_power in zip(pools, pool_powers):
+        powers[pool] = powers[pool] / powers[pool].sum() * pool_power
 
     nx.set_node_attributes(G, dict(zip(G, powers)), name='power')
     G_pools = [nx.subgraph(G, pool) for pool in pools]
-    pool_powers = []
-    for pool in G_pools:
-        pool_powers.append(powers[pool.nodes].sum())
 
     if pool_connectivity:
         for i, pool in enumerate(G_pools):
@@ -228,7 +240,7 @@ def parse_args(parser_args=None):
     parser.add_argument('-T', '--turns', type=int, default=1000)
     parser.add_argument('--num-pools', type=int)
     parser.add_argument('--pool-powers', type=float, nargs='*')
-    parser.add_argument('--pools', nargs='*')
+    parser.add_argument('--pool-sizes', type=float, nargs='*')
     parser.add_argument('--pool-connectivity', type=float)
 
     parser.add_argument('--message-time', type=float, default=0.01)
@@ -241,14 +253,6 @@ def parse_args(parser_args=None):
 
     args = parser.parse_args(args=parser_args)
 
-    pools = []
-    for n in args.pools:
-        try:
-            pools.append(int(n))
-        except ValueError:
-            n = int(float(n) * args.num_nodes)
-            pools.append(n)
-    args.pools = pools
     return args
 
 
@@ -259,12 +263,13 @@ def main():
     random.seed(args.seed)
     np.random.seed(args.seed)
 
-    G, pools, node_powers, pool_powers = generate_network_and_pools(args.num_nodes, args.pools, args.pool_powers,
+    G, pools, node_powers, pool_powers = generate_network_and_pools(args.num_nodes, args.num_pools, None,
+                                                                    args.pool_powers,
                                                                     args.pool_connectivity)
-    rel_rewards = mine(G, pools, args.turns, args.turns * 1.1,
-                       args.message_time, args.tie_breaking,
-                       dynamic_progress=args.dynamic_progress)
-    # plot_relative_reward(pool_powers, rel_rewards)
+    rel_rewards, forked_time = mine(G, pools, args.turns, args.turns * 1.1,
+                                    args.message_time, args.tie_breaking,
+                                    dynamic_progress=args.dynamic_progress)
+    plot_relative_reward(pool_powers, rel_rewards)
 
     # layout = nx.spring_layout(G)
     # colors = ['red', 'green', 'teal']
