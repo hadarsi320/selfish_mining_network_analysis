@@ -98,6 +98,30 @@ def generate_network_and_pools(N: int, n_k: list, p_k: list = None, pool_connect
     return G, G_pools, powers, pool_powers
 
 
+LAST = 0
+
+
+def print_progress(t, min_time, start, forked, dynamic_progress=True):
+    global LAST
+    frac = t / min_time
+    if frac > 0:
+        message = '[{}{}] {:.2f}/{} [{:.2f}%] {}{:.2f}s'.format(
+            min(int(frac * 50), 50) * '#',
+            max(int((1 - frac) * 50), 0) * '-',
+            t, min_time, frac * 100,
+            'Forked ' if forked else '',
+            time.time() - start,
+        )
+
+        if dynamic_progress:
+            sys.stdout.write('\r' + message)
+        else:
+            foobar = math.floor(frac * 100 / 5)
+            if foobar > LAST:
+                LAST = foobar
+                print(message)
+
+
 def mine(G: nx.Graph, pools: List[nx.Graph], min_time: int, edge_time, tie_breaking='first'):
     def init_actions(t):
         if t not in actions:
