@@ -35,37 +35,37 @@ def plot_relative_reward(power_list, rewards, selfish_pool=None):
     plt.show()
 
 
-def generate_network_and_pools(N: int, n_k: list, p_k: list = None):
+def generate_network_and_pools(N: int, n_k: list, p_k: list = None, pool_connectivity: float = None):
     """
     Generates a graph and distributes mining power through the graph
     :param N: The total size of the graph
     :param n_k: A list of the sizes of the pools in the graph
-    :param p_k:
+    :param p_k: An optional list of the strength of the pools
+    :param pool_connectivity:
     :return: An nx graph object of the entire network, and a list of subnetworks
     """
-    assert sum(n_k) <= N
+    assert sum(n_k) <= N, 'The pools can\'t be larger than the network'
     if p_k is not None:
-        assert sum(p_k) <= 1
-        assert (sum(n_k) <= N) == (sum(p_k) <= 1)
+        assert sum(p_k) <= 1, f'The pools can\'t be stronger than the network, sum(powers) = {sum(p_k)} > 1'
+        assert (sum(n_k) < N) == (sum(p_k) < 1)
         assert len(n_k) == len(p_k)
+    if pool_connectivity is not None:
+        assert 0 < pool_connectivity <= 1
 
     if sum(n_k) < N:
         n_k.append(N - sum(n_k))
         if p_k is not None:
             p_k.append(1 - sum(p_k))
 
-    # G = nx.fast_gnp_random_graph(N, 0.1)
-    # G = nx.newman_watts_strogatz_graph(N, 4, 2)
     G = nx.powerlaw_cluster_graph(N, 2, 0.1)
 
-    nodes = random.sample(G.nodes, len(G))
+    nodes = random.sample(list(G.nodes), len(G))
     pools = []
     for N_i in n_k:
         pools.append(nodes[:N_i])
         del nodes[:N_i]
 
     powers = np.random.random(len(G))
-
     if p_k:
         for pool, p in zip(pools, p_k):
             powers[pool] = powers[pool] / powers[pool].sum() * p
@@ -73,10 +73,25 @@ def generate_network_and_pools(N: int, n_k: list, p_k: list = None):
         powers /= powers.sum()
 
     nx.set_node_attributes(G, dict(zip(G, powers)), name='power')
-    G_pools = [G.subgraph(pool) for pool in pools]
+    G_pools = [nx.subgraph(G, pool) for pool in pools]
     pool_powers = []
     for pool in G_pools:
         pool_powers.append(powers[pool.nodes].sum())
+
+    if pool_connectivity:
+        for i, pool in enumerate(G_pools):
+            if len(pool) > 1:
+                max_edges = math.comb(len(pool), 2)
+                num_edges = len(pool.edges)
+                connectivity = num_edges / max_edges
+                if connectivity < pool_connectivity:
+                    num_missing = int(max_edges * pool_connectivity) - num_edges
+                    total_edges = nx.complete_graph(pool.nodes).edges
+                    missing_edges = total_edges - pool.edges
+                    edges_to_add = random.sample(list(missing_edges), num_missing)
+                    G.add_edges_from(edges_to_add)
+                logging.info(f'Pool {i + 1} has connectivity {len(pool.edges) / max_edges:.3f}')
+
     return G, G_pools, powers, pool_powers
 
 
