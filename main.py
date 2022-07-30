@@ -228,9 +228,15 @@ def main():
     args = parse_args(None)
     logging.getLogger().setLevel('INFO')
 
-    G, pools, node_powers, pool_powers = generate_network_and_pools(N, [30, 20, 15])
-    rel_rewards = mine(G, pools, T, message_time)
-    plot_relative_reward(pool_powers, rel_rewards)
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+
+    G, pools, node_powers, pool_powers = generate_network_and_pools(args.num_nodes, args.pools, args.pool_powers,
+                                                                    args.pool_connectivity)
+    rel_rewards = mine(G, pools, args.turns, args.turns * 1.1,
+                       args.message_time, args.tie_breaking,
+                       dynamic_progress=args.dynamic_progress)
+    # plot_relative_reward(pool_powers, rel_rewards)
 
     # layout = nx.spring_layout(G)
     # colors = ['red', 'green', 'teal']
