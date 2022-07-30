@@ -69,7 +69,7 @@ def generate_network_and_pools(num_nodes: int, num_pools: int, pool_powers: list
         elif len(_list) == num_pools:
             assert sum(_list) == 1
         else:
-            raise ValueError('The list cannot have more objects than there are pools', f'[{_list=}]')
+            raise ValueError('The list cannot have more objects than there are pools')
 
     if pool_connectivity is not None:
         assert 0 < pool_connectivity <= 1
@@ -94,18 +94,23 @@ def generate_network_and_pools(num_nodes: int, num_pools: int, pool_powers: list
     G_pools = [nx.subgraph(G, pool) for pool in pools]
 
     if pool_connectivity:
+        # the last pool is just the rest of the nodes and not a single entity, and therefore we don't require them to
+        # have any
         for i, pool in enumerate(G_pools):
             if len(pool) > 1:
                 max_edges = math.comb(len(pool), 2)
-                num_edges = len(pool.edges)
-                connectivity = num_edges / max_edges
-                if connectivity < pool_connectivity:
-                    num_missing = int(max_edges * pool_connectivity) - num_edges
-                    total_edges = nx.complete_graph(pool.nodes).edges
-                    missing_edges = total_edges - pool.edges
-                    edges_to_add = random.sample(list(missing_edges), num_missing)
-                    G.add_edges_from(edges_to_add)
-                logging.info(f'Pool {i + 1} has connectivity {len(pool.edges) / max_edges:.3f}')
+                if i < num_pools - 1:
+                    num_edges = len(pool.edges)
+                    connectivity = num_edges / max_edges
+                    if connectivity < pool_connectivity:
+                        num_missing = int(max_edges * pool_connectivity) - num_edges
+                        total_edges = nx.complete_graph(pool.nodes).edges
+                        edges_to_add = random.sample(list(total_edges - pool.edges), num_missing)
+                        G.add_edges_from(edges_to_add)
+                logging.info('Pool {} has connectivity {:.3f}{}'.
+                             format(i + 1, len(pool.edges) / max_edges, ' the last pool' * (i == num_pools - 1)))
+            else:
+                logging.info(f'Pool {i + 1} has a single node')
 
     return G, G_pools, powers, pool_powers
 
