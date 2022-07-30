@@ -44,8 +44,15 @@ def sample_sum_to(size, sum):
     return sizes
 
 
+def get_connectivity(graph):
+    max_edges = math.comb(len(graph), 2)
+    num_edges = len(graph.edges)
+    connectivity = num_edges / max_edges
+    return connectivity
+
+
 def generate_network_and_pools(num_nodes: int, num_pools: int, pool_powers: list = None, pool_sizes: list = None,
-                               pool_connectivity: float = None):
+                               pool_connectivity: float = 0):
     """
     Generates a graph and distributes mining power through the graph
     :param num_nodes: The total size of the graph
@@ -71,8 +78,7 @@ def generate_network_and_pools(num_nodes: int, num_pools: int, pool_powers: list
         else:
             raise ValueError('The list cannot have more objects than there are pools')
 
-    if pool_connectivity is not None:
-        assert 0 < pool_connectivity <= 1
+    assert 0 <= pool_connectivity <= 1
 
     G = nx.powerlaw_cluster_graph(num_nodes, 2, 0.1)  # TODO set args
 
@@ -93,24 +99,24 @@ def generate_network_and_pools(num_nodes: int, num_pools: int, pool_powers: list
     nx.set_node_attributes(G, dict(zip(G, powers)), name='power')
     G_pools = [nx.subgraph(G, pool) for pool in pools]
 
-    if pool_connectivity:
-        # the last pool is just the rest of the nodes and not a single entity, and therefore we don't require them to
-        # have any
-        for i, pool in enumerate(G_pools):
-            if len(pool) > 1:
-                max_edges = math.comb(len(pool), 2)
-                if i < num_pools - 1:
-                    num_edges = len(pool.edges)
-                    connectivity = num_edges / max_edges
-                    if connectivity < pool_connectivity:
-                        num_missing = int(max_edges * pool_connectivity) - num_edges
-                        total_edges = nx.complete_graph(pool.nodes).edges
-                        edges_to_add = random.sample(list(total_edges - pool.edges), num_missing)
-                        G.add_edges_from(edges_to_add)
-                logging.info('Pool {} has connectivity {:.3f}{}'.
-                             format(i + 1, len(pool.edges) / max_edges, ' the last pool' * (i == num_pools - 1)))
-            else:
-                logging.info(f'Pool {i + 1} has a single node')
+    # the last pool is just the rest of the nodes and not a single entity, and therefore we don't require them to
+    # have any
+    for i, pool in enumerate(G_pools):
+        if len(pool) > 1:
+            max_edges = math.comb(len(pool), 2)
+            if i < num_pools - 1:
+                num_edges = len(pool.edges)
+                if get_connectivity(pool) < pool_connectivity:
+                    num_missing = int(max_edges * pool_connectivity) - num_edges
+                    total_edges = nx.complete_graph(pool.nodes).edges
+                    edges_to_add = random.sample(list(total_edges - pool.edges), num_missing)
+                    G.add_edges_from(edges_to_add)
+            logging.info('Pool {} has connectivity {:.3f}{}'.
+                         format(i + 1, get_connectivity(pool),
+                                ', it is the rest pseudo pool' * (i == num_pools - 1)))
+        else:
+            logging.info(f'Pool {i + 1} has a single node')
+    logging.info('The total network connectivity is {:.3f}'.format(get_connectivity(G)))
 
     return G, G_pools, powers, pool_powers
 
@@ -123,8 +129,8 @@ def print_progress(t, min_time, start, forked, dynamic_progress=True):
     frac = t / min_time
     if frac > 0:
         message = '[{}{}] {:.2f}/{} [{:.2f}%] {}{:.2f}s'.format(
-            min(int(frac * 50), 50) * '#',
-            max(int((1 - frac) * 50), 0) * '-',
+            min(round(frac * 50), 50) * '#',
+            max(round((1 - frac) * 50), 0) * '-',
             t, min_time, frac * 100,
             'Forked ' if forked else '',
             time.time() - start,
@@ -141,6 +147,19 @@ def print_progress(t, min_time, start, forked, dynamic_progress=True):
 
 def mine(G: nx.Graph, pools: List[nx.Graph], min_time: int, max_time: int, message_time, tie_breaking,
          dynamic_progress=True, eps=1e-3):
+    """
+
+    :param G:
+    :param pools: A list of the pools in the network, only used for reward aggregation
+    :param min_time:
+    :param max_time:
+    :param message_time:
+    :param tie_breaking:
+    :param dynamic_progress:
+    :param eps:
+    :return:
+    """
+
     def init_actions(t):
         if t not in actions:
             actions[t] = {'mine': [], 'receive': [], 'pending': []}
@@ -163,11 +182,9 @@ def mine(G: nx.Graph, pools: List[nx.Graph], min_time: int, max_time: int, messa
                 actions[receive_time]['receive'].append(neighbor)
 
     ndigits = -int(math.log10(eps))
-    n2p = {node: pool for pool in pools for node in pool}
-    for pool in pools:
-        for node in pool:
-            G.nodes[node]['blockchain'] = [Block(None, 0)]
-            G.nodes[node]['seen'] = []
+    for node in G:
+        G.nodes[node]['blockchain'] = [Block(None, 0)]
+        G.nodes[node]['seen'] = []
 
     last_block_id = 0
     actions = {0: {'pending': [node for node in G], 'receive': [], 'mine': []}}
@@ -232,6 +249,7 @@ def mine(G: nx.Graph, pools: List[nx.Graph], min_time: int, max_time: int, messa
 
     rewards = dict.fromkeys(pools, 0)
     blockchain = G.nodes[0]['blockchain']
+    n2p = {node: pool for pool in pools for node in pool}
     for block in blockchain[1:]:  # ignoring the 1st block
         rewards[n2p[block.creator]] += 1
     rewards = np.array(list(rewards.values()))
@@ -246,7 +264,7 @@ def parse_args(parser_args=None):
     parser.add_argument('--num-pools', type=int)
     parser.add_argument('--pool-powers', type=float, nargs='*')
     parser.add_argument('--pool-sizes', type=float, nargs='*')
-    parser.add_argument('--pool-connectivity', type=float)
+    parser.add_argument('--pool-connectivity', type=float, default=0)
 
     parser.add_argument('--message-time', type=float, default=0.01)
     parser.add_argument('--tie-breaking', type=str, choices=['first', 'random'])
