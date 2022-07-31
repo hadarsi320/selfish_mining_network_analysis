@@ -18,6 +18,9 @@ def get_connectivity(graph):
     return connectivity
 
 
+LAST = 0
+
+
 def print_progress(t, min_time, start, forked, dynamic_progress=True):
     global LAST
     frac = t / min_time
@@ -37,3 +40,20 @@ def print_progress(t, min_time, start, forked, dynamic_progress=True):
             if foobar > LAST:
                 LAST = foobar
                 print(message)
+
+
+def convert_args_dict(args_dict: dict, flags=()):
+    """This is a copy of another function in the project so no installed packages are required"""
+    args = []
+    for key, value in args_dict.items():
+        key = '-'.join(key.split('_'))
+        if ' ' in key:
+            raise ValueError(f'Key "{key}" contains a space, which is not allowed')
+        args.append(f'-{key}' if len(key) == 1 else f'--{key}')
+        if isinstance(value, list):
+            args.extend(value)
+        else:
+            args.append(value)
+    for flag in flags:
+        args.append(f'-{flag}' if len(flag) == 1 else f'--{flag}')
+    return ' '.join(map(str, args))
