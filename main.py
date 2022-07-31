@@ -250,7 +250,6 @@ def parse_args(input: list):
 
 def mining_simulation(input=None):
     args = parse_args(input)
-    logging.getLogger().setLevel('INFO')
 
     random.seed(args.seed)
     np.random.seed(args.seed)
@@ -274,4 +273,5 @@ def mining_simulation(input=None):
 
 
 if __name__ == '__main__':
+    logging.getLogger().setLevel('INFO')
     mining_simulation()
