@@ -1,8 +1,10 @@
 import argparse
+import json
 import logging
 import math
 import random
 import time
+from pathlib import Path
 from typing import List
 
 import networkx as nx
@@ -51,7 +53,7 @@ def generate_network_and_pools(num_nodes: int, num_pools: int, pool_powers: list
         else:
             raise ValueError('The list cannot have more objects than there are pools')
 
-    assert 0 <= pool_connectivity <= 1
+    assert 0 <= pool_connectivity <= 1, 'Pool connectivity is a factor between 0 and 1'
 
     G = nx.powerlaw_cluster_graph(num_nodes, 2, 0.1)  # TODO set args
 
@@ -59,11 +61,18 @@ def generate_network_and_pools(num_nodes: int, num_pools: int, pool_powers: list
     pools = []
     for i, pool_size in enumerate(pool_sizes):
         if i < num_pools - 1:
-            pool_size = int(pool_size * num_nodes)
+            pool_size = max(int(pool_size * num_nodes), 1)
             pools.append(nodes[:pool_size])
             del nodes[:pool_size]
         else:
             pools.append(nodes)
+    pool_sizes = [len(pool) for pool in pools]
+
+    assert sum(pool_sizes) == num_nodes
+    assert all(pool_size != 0 for pool_size in pool_sizes)
+
+    for i, (pool_power, pool_size) in enumerate(zip(pool_powers, pool_sizes)):
+        logging.info(f'Pool {i + 1} has {pool_size} nodes and power {pool_power:.2f}')
 
     powers = np.random.random(num_nodes)
     for pool, pool_power in zip(pools, pool_powers):
@@ -91,7 +100,7 @@ def generate_network_and_pools(num_nodes: int, num_pools: int, pool_powers: list
             logging.info(f'Pool {i + 1} has a single node')
     logging.info('The total network connectivity is {:.3f}'.format(get_connectivity(G)))
 
-    return G, G_pools, powers, pool_powers
+    return G, G_pools, powers, pool_powers, pool_sizes
 
 
 LAST = 0
@@ -197,7 +206,7 @@ def mine(G: nx.Graph, pools: List[nx.Graph], min_time: int, max_time: int, messa
             if forked:
                 forked_time += eps
     finish = t
-    logging.info('{:.2f}% of the time the blockchain was forked'.format(forked_time / finish * 100))
+    logging.info('The blockchain was forked {:.2f}% of the time'.format(forked_time / finish * 100))
 
     rewards = dict.fromkeys(pools, 0)
     blockchain = G.nodes[0]['blockchain']
@@ -209,11 +218,11 @@ def mine(G: nx.Graph, pools: List[nx.Graph], min_time: int, max_time: int, messa
     return relative_rewards, forked_time / finish
 
 
-def parse_args(parser_args=None):
+def parse_args(input):
     parser = argparse.ArgumentParser()
     parser.add_argument('-N', '--num-nodes', type=int, default=1000)
     parser.add_argument('-T', '--turns', type=int, default=1000)
-    parser.add_argument('--num-pools', type=int)
+    parser.add_argument('-p', '--num-pools', type=int)
     parser.add_argument('--pool-powers', type=float, nargs='*')
     parser.add_argument('--pool-sizes', type=float, nargs='*')
     parser.add_argument('--pool-connectivity', type=float, default=0)
@@ -225,35 +234,45 @@ def parse_args(parser_args=None):
 
     parser.add_argument('-s', '--seed', type=int, default=42, help='random seed')
     parser.add_argument('--dynamic-progress', action='store_true')
+    parser.add_argument('--outf', type=Path)
+    parser.add_argument('--debug', action='store_true')
 
-    args = parser.parse_args(args=parser_args)
+    args = parser.parse_args(args=input)
+
+    if args.debug:
+        args.outf = Path('outputs/debug.json')
+        if args.outf.exists():
+            args.outf.unlink()
+    elif args.outf is None:
+        args.outf = Path(f'outputs/{args.num_nodes}_{args.num_pools}_{args.seed}.json')
+    args.outf.parent.mkdir(parents=True, exist_ok=True)
 
     return args
 
 
-def main():
-    args = parse_args(None)
+def mining_experiment(input):
+    args = parse_args(input)
     logging.getLogger().setLevel('INFO')
 
     random.seed(args.seed)
     np.random.seed(args.seed)
 
-    G, pools, node_powers, pool_powers = generate_network_and_pools(args.num_nodes, args.num_pools, None,
-                                                                    args.pool_powers,
-                                                                    args.pool_connectivity)
-    rel_rewards, forked_time = mine(G, pools, args.turns, args.turns * 1.1,
-                                    args.message_time, args.tie_breaking,
+    G, pools, node_powers, pool_powers, pool_sizes = \
+        generate_network_and_pools(args.num_nodes, args.num_pools, args.pool_powers, args.pool_sizes,
+                                   args.pool_connectivity)
+    if args.debug:
+        draw_graph(G, pools)
+
+    rel_rewards, forked_time = mine(G, pools, args.turns, args.turns * 1.1, args.message_time, args.tie_breaking,
                                     dynamic_progress=args.dynamic_progress)
+    results = {'pool_powers': pool_powers, 'pool_sizes': pool_sizes,
+               'relative_rewards': rel_rewards.tolist(), 'forked_time': forked_time}
+    json.dump(results, args.outf.open('w'), indent=4)
     plot_relative_reward(pool_powers, rel_rewards)
 
-    # layout = nx.spring_layout(G)
-    # colors = ['red', 'green', 'teal']
-    # for i, pool in enumerate(pools):
-    #     power = sum(nx.get_node_attributes(pool, 'power').values())
-    #     print('pool', i, 'has power:', power)
-    #     nx.draw_networkx_nodes(pool, layout, node_color=colors[i])
-    # nx.draw_networkx_edges(G, layout)
-    # plt.show()
+
+def main():
+    mining_experiment(None)
 
 
 if __name__ == '__main__':
