@@ -103,9 +103,6 @@ def generate_network_and_pools(num_nodes: int, num_pools: int, pool_powers: list
     return G, G_pools, powers, pool_powers, pool_sizes
 
 
-LAST = 0
-
-
 def mine(G: nx.Graph, pools: List[nx.Graph], min_time: int, max_time: int, message_time, tie_breaking,
          dynamic_progress=True, eps=1e-3):
     """
@@ -218,7 +215,7 @@ def mine(G: nx.Graph, pools: List[nx.Graph], min_time: int, max_time: int, messa
     return relative_rewards, forked_time / finish
 
 
-def parse_args(input):
+def parse_args(input: list):
     parser = argparse.ArgumentParser()
     parser.add_argument('-N', '--num-nodes', type=int, default=1000)
     parser.add_argument('-T', '--turns', type=int, default=1000)
@@ -228,7 +225,7 @@ def parse_args(input):
     parser.add_argument('--pool-connectivity', type=float, default=0)
 
     parser.add_argument('--message-time', type=float, default=0.01)
-    parser.add_argument('--tie-breaking', type=str, choices=['first', 'random'])
+    parser.add_argument('--tie-breaking', type=str, choices=['first', 'random'], default='first')
     parser.add_argument('--selfish-mining', action='store_true')  # TODO implement
     parser.add_argument('--banning', action='store_true')  # TODO implement
 
@@ -236,6 +233,7 @@ def parse_args(input):
     parser.add_argument('--dynamic-progress', action='store_true')
     parser.add_argument('--outf', type=Path)
     parser.add_argument('--debug', action='store_true')
+    parser.add_argument('--plot-graph', action='store_true')
 
     args = parser.parse_args(args=input)
 
@@ -250,7 +248,7 @@ def parse_args(input):
     return args
 
 
-def mining_experiment(input):
+def mining_simulation(input=None):
     args = parse_args(input)
     logging.getLogger().setLevel('INFO')
 
@@ -265,15 +263,15 @@ def mining_experiment(input):
 
     rel_rewards, forked_time = mine(G, pools, args.turns, args.turns * 1.1, args.message_time, args.tie_breaking,
                                     dynamic_progress=args.dynamic_progress)
-    results = {'pool_powers': pool_powers, 'pool_sizes': pool_sizes,
-               'relative_rewards': rel_rewards.tolist(), 'forked_time': forked_time}
-    json.dump(results, args.outf.open('w'), indent=4)
-    plot_relative_reward(pool_powers, rel_rewards)
 
+    output = {key: str(value) if isinstance(value, Path) else value for key, value in args.__dict__.items()}
+    output.update({'pool_powers': pool_powers, 'pool_sizes': pool_sizes,
+                   'relative_rewards': rel_rewards.tolist(), 'forked_time': forked_time})
+    json.dump(output, args.outf.open('w'), indent=4)
 
-def main():
-    mining_experiment(None)
+    if args.plot_graph or args.debug:
+        plot_relative_reward(pool_powers, rel_rewards)
 
 
 if __name__ == '__main__':
-    main()
+    mining_simulation()
