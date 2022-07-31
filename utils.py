@@ -21,7 +21,7 @@ def get_connectivity(graph):
 LAST = 0
 
 
-def print_progress(t, min_time, start, forked, dynamic_progress=True):
+def print_progress(t, min_time, start, forked, prints=True):
     global LAST
     frac = t / min_time
     if frac > 0:
@@ -33,9 +33,9 @@ def print_progress(t, min_time, start, forked, dynamic_progress=True):
             time.time() - start,
         )
 
-        if dynamic_progress:
+        if prints == 'dynamic':
             sys.stdout.write('\r' + message)
-        else:
+        elif prints == 'update':
             foobar = math.floor(frac * 100 / 5)
             if foobar > LAST:
                 LAST = foobar
