@@ -11,3 +11,18 @@ def draw_graph(G, pools):
     nx.draw_networkx_edges(G, layout)
     plt.legend(loc='best')
     plt.show()
+
+
+def plot_relative_reward(power_list, rewards, selfish_pool=False):
+    relative_rewards = rewards / rewards.sum()
+    plt.plot([0, 1], [0, 1], label='Expected')
+    if selfish_pool:
+        plt.scatter(power_list[0], relative_rewards[0],
+                    label='Selfish Pools', color='red')
+        plt.scatter(power_list[1:], relative_rewards[1:], label='Honest Pools' if selfish_pool else 'Pools')
+    else:
+        plt.scatter(power_list, relative_rewards, label='Pools')
+    plt.legend()
+    plt.xlabel('Pool Power')
+    plt.ylabel('Relative Reward')
+    plt.show()
