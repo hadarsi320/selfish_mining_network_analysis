@@ -202,6 +202,7 @@ def mine(G: nx.Graph, pools: List[nx.Graph], min_time: int, max_time: int, messa
             forked = any(item != last_blocks[0] for item in last_blocks)
             if forked:
                 forked_time += eps
+    print()
     finish = t
     logging.info('The blockchain was forked {:.2f}% of the time'.format(forked_time / finish * 100))
 
