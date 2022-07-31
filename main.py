@@ -2,11 +2,9 @@ import argparse
 import logging
 import math
 import random
-import sys
 import time
 from typing import List
 
-import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
 
@@ -21,34 +19,6 @@ class Block:
 
     def __repr__(self):
         return self.__str__()
-
-
-def plot_relative_reward(power_list, rewards, selfish_pool=None):
-    relative_rewards = rewards / rewards.sum()
-    plt.plot([0, 1], [0, 1], label='Expected')
-    if selfish_pool:
-        plt.scatter(power_list[selfish_pool], relative_rewards[selfish_pool],
-                    label='Selfish Pools', color='red')
-        del power_list[selfish_pool]
-        relative_rewards = np.delete(relative_rewards, selfish_pool)
-    plt.scatter(power_list, relative_rewards, label='Honest Pools')
-    plt.legend()
-    plt.xlabel('Pool Power')
-    plt.ylabel('Relative Reward')
-    plt.show()
-
-
-def sample_sum_to(size, sum):
-    sizes = np.random.random(size)
-    sizes = sizes / sizes.sum() * sum
-    return sizes
-
-
-def get_connectivity(graph):
-    max_edges = math.comb(len(graph), 2)
-    num_edges = len(graph.edges)
-    connectivity = num_edges / max_edges
-    return connectivity
 
 
 def generate_network_and_pools(num_nodes: int, num_pools: int, pool_powers: list = None, pool_sizes: list = None,
@@ -122,27 +92,6 @@ def generate_network_and_pools(num_nodes: int, num_pools: int, pool_powers: list
 
 
 LAST = 0
-
-
-def print_progress(t, min_time, start, forked, dynamic_progress=True):
-    global LAST
-    frac = t / min_time
-    if frac > 0:
-        message = '[{}{}] {:.2f}/{} [{:.2f}%] {}{:.2f}s'.format(
-            min(round(frac * 50), 50) * '#',
-            max(round((1 - frac) * 50), 0) * '-',
-            t, min_time, frac * 100,
-            'Forked ' if forked else '',
-            time.time() - start,
-        )
-
-        if dynamic_progress:
-            sys.stdout.write('\r' + message)
-        else:
-            foobar = math.floor(frac * 100 / 5)
-            if foobar > LAST:
-                LAST = foobar
-                print(message)
 
 
 def mine(G: nx.Graph, pools: List[nx.Graph], min_time: int, max_time: int, message_time, tie_breaking,
