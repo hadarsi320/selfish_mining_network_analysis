@@ -24,17 +24,19 @@ def rr_by_power_exp():
                             flags.append('banning')
                         args['tie-breaking'] = tie_breaking
                         args['pool-powers'] = pool_power
+                        args['seed'] = seed
                         args['outf'] = Path('outputs/{tie-breaking}/{}/{pool-powers}/{seed}/out.json'.format(
                             'selfish' if selfish_mining else 'honest', **args))
 
-                        if i % 5:
+                        if i % 5 or i == 1:
                             print('Running experiment number {} with outf {}'.format(i, args['outf']))
 
                         if args['outf'].exists():
                             print('Skipping experiment as outf exists', args['outf'])
                             continue
 
-                        mining_simulation(convert_args_dict(args, flags))
+                        cmd_args = convert_args_dict(args, flags)
+                        mining_simulation(cmd_args)
                         i += 1
 
 
