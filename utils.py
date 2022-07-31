@@ -56,4 +56,4 @@ def convert_args_dict(args_dict: dict, flags=()):
             args.append(value)
     for flag in flags:
         args.append(f'-{flag}' if len(flag) == 1 else f'--{flag}')
-    return ' '.join(map(str, args))
+    return list(map(str, args))
