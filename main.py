@@ -27,7 +27,7 @@ class Block:
 
 
 def generate_network_and_pools(num_nodes: int, num_pools: int, pool_powers: list = None, pool_sizes: list = None,
-                               pool_connectivity: float = 0):
+                               pool_connectivity: float = 0, selfish_mining=False):
     """
     Generates a graph and distributes mining power through the graph
     :param num_nodes: The total size of the graph
@@ -36,8 +36,12 @@ def generate_network_and_pools(num_nodes: int, num_pools: int, pool_powers: list
     :param pool_powers: An optional list of the strength of the pools
     :param pool_sizes: A list of the sizes of the pools in the graph
     :param pool_connectivity: ??
-    :return: An nx graph object of the entire network, and a list of subgraphs for each pool
+    :param selfish_mining: Whether the first pool is doing selfish mining
+    :return: An nx graph object of the entire network, and a list of sub graphs for each pool
     """
+    if selfish_mining:
+        assert num_pools > 1, 'Selfish mining only makes sense when pools exist'
+
     if pool_powers is None:
         pool_powers = []
     if pool_sizes is None:
@@ -99,6 +103,12 @@ def generate_network_and_pools(num_nodes: int, num_pools: int, pool_powers: list
         else:
             logging.info(f'Pool {i + 1} has a single node')
     logging.info('The total network connectivity is {:.3f}'.format(get_connectivity(G)))
+
+    for node in G:
+        if selfish_mining and node in G_pools[0]:
+            G.nodes[node]['selfish'] = True
+        else:
+            G.nodes[node]['selfish'] = False
 
     return G, G_pools, powers, pool_powers, pool_sizes
 
