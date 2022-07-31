@@ -114,7 +114,7 @@ def generate_network_and_pools(num_nodes: int, num_pools: int, pool_powers: list
 
 
 def mine(G: nx.Graph, pools: List[nx.Graph], min_time: int, max_time: int, message_time, tie_breaking,
-         dynamic_progress=True, eps=1e-3):
+         prints, eps=1e-3):
     """
 
     :param G:
@@ -123,7 +123,6 @@ def mine(G: nx.Graph, pools: List[nx.Graph], min_time: int, max_time: int, messa
     :param max_time:
     :param message_time:
     :param tie_breaking:
-    :param dynamic_progress:
     :param eps:
     :return:
     """
@@ -168,7 +167,7 @@ def mine(G: nx.Graph, pools: List[nx.Graph], min_time: int, max_time: int, messa
         t = next(times)
         if t in actions:
             actions_t = actions.pop(t)
-            print_progress(t, min_time, start, False, dynamic_progress=dynamic_progress)
+            print_progress(t, min_time, start, False, prints=prints)
             for node in actions_t['mine']:
                 last_block_id += 1
                 new_block = Block(node, last_block_id)
@@ -241,10 +240,10 @@ def parse_args(input: list):
     parser.add_argument('--banning', action='store_true')  # TODO implement
 
     parser.add_argument('-s', '--seed', type=int, default=42, help='random seed')
-    parser.add_argument('--dynamic-progress', action='store_true')
     parser.add_argument('--outf', type=Path)
     parser.add_argument('--debug', action='store_true')
     parser.add_argument('--plot-graph', action='store_true')
+    parser.add_argument('--prints', choices=['dynamic', 'update', 'parallel'])
 
     args = parser.parse_args(args=input)
 
@@ -267,17 +266,20 @@ def mining_simulation(input=None):
 
     G, pools, node_powers, pool_powers, pool_sizes = \
         generate_network_and_pools(args.num_nodes, args.num_pools, args.pool_powers, args.pool_sizes,
-                                   args.pool_connectivity)
+                                   args.pool_connectivity, args.selfish_mining)
     if args.debug:
         draw_graph(G, pools)
 
     rel_rewards, forked_time = mine(G, pools, args.turns, args.turns * 1.1, args.message_time, args.tie_breaking,
-                                    dynamic_progress=args.dynamic_progress)
+                                    prints=args.prints)
 
     output = {key: str(value) if isinstance(value, Path) else value for key, value in args.__dict__.items()}
     output.update({'pool_powers': pool_powers, 'pool_sizes': pool_sizes,
                    'relative_rewards': rel_rewards.tolist(), 'forked_time': forked_time})
     json.dump(output, args.outf.open('w'), indent=4)
+
+    if args.prints == 'parallel':
+        print('Finished run, saved at', args.outf)
 
     if args.plot_graph or args.debug:
         plot_relative_reward(pool_powers, rel_rewards)
