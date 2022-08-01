@@ -295,6 +295,7 @@ def parse_args(input: list):
     parser.add_argument('--pool-connectivity', type=float, default=0)
 
     parser.add_argument('--message-time', type=float, default=0.01)
+    parser.add_argument('--eps', type=float, default=0.001)
     parser.add_argument('--tie-breaking', type=str, choices=['first', 'random'], default='first')
     parser.add_argument('--selfish-mining', action='store_true')  # TODO implement
     parser.add_argument('--banning', action='store_true')  # TODO implement
