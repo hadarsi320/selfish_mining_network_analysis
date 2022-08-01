@@ -38,8 +38,8 @@ def assert_pool_connected(G: Graph, pool: list):
             G.add_edge(u, v)
 
 
-def generate_network_and_pools(num_nodes: int, num_pools: int, pool_powers: list = None, pool_sizes: list = None,
-                               pool_connectivity: float = 0, selfish_mining=False):
+def generate_network_and_pools(num_nodes: int, num_pools: int, graph_args, pool_powers: list = None,
+                               pool_sizes: list = None, pool_connectivity: float = 0, selfish_mining=False):
     """
     Generates a graph and distributes mining power through the graph
     :param num_nodes: The total size of the graph
@@ -71,7 +71,8 @@ def generate_network_and_pools(num_nodes: int, num_pools: int, pool_powers: list
 
     assert 0 <= pool_connectivity <= 1, 'Pool connectivity is a factor between 0 and 1'
 
-    G = nx.powerlaw_cluster_graph(num_nodes, 2, 0.1)  # TODO set args
+    G = nx.powerlaw_cluster_graph(num_nodes, int(graph_args[0]), float(graph_args[1]))
+    assert nx.is_connected(G), 'The bitcoin network must be connected'
 
     nodes = random.sample(list(G.nodes), len(G))
     pools = []
@@ -90,6 +91,7 @@ def generate_network_and_pools(num_nodes: int, num_pools: int, pool_powers: list
     for i, (pool_power, pool_size) in enumerate(zip(pool_powers, pool_sizes)):
         logging.info(f'Pool {i + 1} has {pool_size} nodes and power {pool_power:.2f}')
 
+    # set powers
     powers = np.random.random(num_nodes)
     for pool, pool_power in zip(pools, pool_powers):
         powers[pool] = powers[pool] / powers[pool].sum() * pool_power
