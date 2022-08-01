@@ -290,6 +290,7 @@ def mine(G: nx.Graph, pools: List[nx.Graph], min_time: int, max_time: int, messa
 def parse_args(input: list):
     parser = argparse.ArgumentParser()
     parser.add_argument('-N', '--num-nodes', type=int, default=1000)
+    parser.add_argument('--graph-args', nargs=2, default=[2, 0.5])
     parser.add_argument('-T', '--turns', type=int, default=1000)
     parser.add_argument('-p', '--num-pools', type=int)
     parser.add_argument('--pool-powers', type=float, nargs='*')
@@ -328,7 +329,7 @@ def mining_simulation(input=None):
     np.random.seed(args.seed)
 
     G, pools, node_powers, pool_powers, pool_sizes = \
-        generate_network_and_pools(args.num_nodes, args.num_pools, args.pool_powers, args.pool_sizes,
+        generate_network_and_pools(args.num_nodes, args.num_pools, args.graph_args, args.pool_powers, args.pool_sizes,
                                    args.pool_connectivity, args.selfish_mining)
     if args.debug:
         draw_graph(G, pools)
