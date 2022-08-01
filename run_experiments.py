@@ -1,3 +1,4 @@
+from datetime import datetime
 from multiprocessing import Pool
 from pathlib import Path
 
@@ -36,8 +37,12 @@ def rr_by_power_exp():
 
                         cmd_args = convert_args_dict(args, flags)
                         args_lists.append(cmd_args)
+
+    print('There are', len(args_lists), 'runs in total')
+    start = datetime.now()
     with Pool(5) as p:
         p.map(mining_simulation, args_lists)
+    print('The total runtime is ', datetime.now() - start)
 
 
 if __name__ == '__main__':
