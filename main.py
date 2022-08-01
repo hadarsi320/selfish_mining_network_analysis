@@ -9,6 +9,7 @@ from typing import List
 
 import networkx as nx
 import numpy as np
+from networkx import Graph
 
 from plotting import draw_graph, plot_relative_reward
 from utils import sample_sum_to, get_connectivity, print_progress
@@ -24,6 +25,17 @@ class Block:
 
     def __repr__(self):
         return self.__str__()
+
+
+def assert_pool_connected(G: Graph, pool: list):
+    Gp = G.subgraph(pool)
+    if not nx.is_connected(Gp):
+        con_comp = iter(nx.connected_components(Gp))
+        main_cc = next(con_comp)
+        for cc in con_comp:
+            u = random.sample(list(main_cc), 1)[0]
+            v = random.sample(list(cc), 1)[0]
+            G.add_edge(u, v)
 
 
 def generate_network_and_pools(num_nodes: int, num_pools: int, pool_powers: list = None, pool_sizes: list = None,
