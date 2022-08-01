@@ -27,6 +27,22 @@ class Block:
         return self.__str__()
 
 
+class Message:
+    def __init__(self, blockchain, sender, flag=None):
+        self.blockchain = blockchain.copy()
+        self.sender = sender
+        self.flag = flag
+
+    def __str__(self):
+        repr = f'{self.blockchain} [{self.sender}]'
+        if self.flag:
+            repr += f' ({self.flag})'
+        return repr
+
+    def __repr__(self):
+        return self.__str__()
+
+
 def assert_pool_connected(G: Graph, pool: list):
     Gp = G.subgraph(pool)
     if not nx.is_connected(Gp):
@@ -146,26 +162,39 @@ def mine(G: nx.Graph, pools: List[nx.Graph], min_time: int, max_time: int, messa
 
     def init_actions(t):
         if t not in actions:
-            actions[t] = {'mine': [], 'receive': [], 'pending': []}
+            actions[t] = {'mine': [], 'receive': [], 'pending': set()}
 
-    def pass_blockchain(node, message, only_in_pool):
+    def same_pool(u, v):
+        return n2p[u] == n2p[v]
+
+    def cancel_mine(node):
+        actions[n2mt[node]]['mine'].remove(node)
+        if all(len(l) == 0 for l in actions[n2mt[node]].values()):
+            actions.pop(n2mt[node])
+        n2mt.pop(node)
+
+    def pass_blockchain(sender, new_blockchain, only_pool, flag=None):
         # this function alerts other miners of the creation of a new block
+        message = Message(new_blockchain, sender, flag)
         receive_time = round(t + message_time, ndigits)
         init_actions(receive_time)
-        neighbors = set(G.neighbors(node))
-        if only_in_pool:
-            neighbors = [neighbor for neighbor in neighbors if n2p[neighbor] == n2p[node]]
-        block_id = message[-1].id
+        neighbors = set(G.neighbors(sender))
+        if only_pool:
+            neighbors = [neighbor for neighbor in neighbors if same_pool(neighbor, sender)]
+        block_id = new_blockchain[-1].id
 
         for neighbor in neighbors:
             neighbor_attr = G.nodes[neighbor]
             if block_id not in neighbor_attr['seen']:
                 if receive_time not in neighbor_attr['messages']:
-                    neighbor_attr['messages'][receive_time] = [(message.copy(), node)]
+                    neighbor_attr['messages'][receive_time] = [message]
                     actions[receive_time]['receive'].append(neighbor)
-                elif all(message[-1].id != blockchain[-1].id
-                         for blockchain, _ in neighbor_attr['messages'][receive_time]):
-                    neighbor_attr['messages'][receive_time].append((message.copy(), node))
+                elif all(block_id != m.blockchain[-1].id
+                         for m in neighbor_attr['messages'][receive_time]):
+                    neighbor_attr['messages'][receive_time].append(message)
+                if same_pool(neighbor, new_blockchain[-1].creator) and neighbor in n2mt and \
+                        n2mt[neighbor] == receive_time:
+                    cancel_mine(neighbor)
 
     def mine_block(node, block_id):
         attr = G.nodes[node]
@@ -175,61 +204,71 @@ def mine(G: nx.Graph, pools: List[nx.Graph], min_time: int, max_time: int, messa
         if attr['selfish']:
             attr['lead'] += 1
         pass_blockchain(node, attr['blockchain'], attr['selfish'])
-        actions_t['pending'].append(node)
+        actions_t['pending'].add(node)
+        n2mt.pop(node)
 
     def receive_block():
-        def accept(new_blockchain, block_id):
-            # TODO change behavior if block is selfish
-            attr = G.nodes[node]
+        def accept():
+            """
+            When this function runs, the current node accepts a received blockchain as the blockchain to mine on
+            """
             old_blockchain = attr['blockchain']
             attr['blockchain'] = new_blockchain
-            if attr['selfish'] and n2p[new_blockchain[-1].creator] == n2p[node]:
-                if len(old_blockchain) < len(new_blockchain):
-                    assert G.nodes[sender]['lead'] >= attr['lead'] + 1
-                    attr['lead'] += 1
-                pass_blockchain(node, new_blockchain, True)
+            if attr['selfish']:
+                if created_by_pool:
+                    if len(old_blockchain) < len(new_blockchain):
+                        # assert G.nodes[sender]['lead'] >= attr['lead'] + 1
+                        attr['lead'] += 1
+                    pass_blockchain(node, new_blockchain, True)
+                else:
+                    assert attr['lead'] == 0
             else:
                 pass_blockchain(node, new_blockchain, False)
 
-            actions_t['pending'].append(node)
+            actions_t['pending'].add(node)
             last_blocks[node] = block_id
             if node in n2mt:
-                actions[n2mt[node]]['mine'].remove(node)
-                if all(len(l) == 0 for l in actions[n2mt[node]].values()):
-                    actions.pop(n2mt[node])
-                n2mt.pop(node)
+                cancel_mine(node)
 
         attr = G.nodes[node]
         messages = attr['messages'].pop(t)
-        for new_blockchain, sender in messages:
+        for message in messages:
             node_blockchain = attr['blockchain']
+            # sender = message.sender
+            new_blockchain = message.blockchain.copy()
+            flag = message.flag
+            created_by_pool = same_pool(new_blockchain[-1].creator, node)
             block_id = new_blockchain[-1].id
             if block_id not in attr['seen']:
                 attr['seen'].append(block_id)
                 if len(new_blockchain) > len(node_blockchain):
-                    accept(new_blockchain, block_id)
+                    assert flag is None
+                    accept()
 
                 elif len(new_blockchain) == len(node_blockchain):
                     if attr['selfish']:
-                        if n2p[new_blockchain[-1].creator] == n2p[node]:
-                            accept(new_blockchain, block_id)
+                        if created_by_pool:
+                            accept()
                         elif attr['lead'] == 1:
                             attr['lead'] = 0
                             pass_blockchain(node, node_blockchain, False)
-                            pass_blockchain(node, new_blockchain, True)
+                            pass_blockchain(node, new_blockchain, True, '-1')
                     elif tie_breaking == 'random' and random.random() > 0.5:
-                        accept(new_blockchain, block_id)
+                        accept()
 
                 elif attr['selfish']:
-                    if attr['lead'] >= 1:
-                        if attr['lead'] > 2:
+                    if not created_by_pool and attr['lead'] >= 1:
+                        if attr['lead'] <= 2 or flag == '-2':
+                            attr['lead'] = max(attr['lead'] - 2, 0)
+                            revealed_blockchain = node_blockchain if attr['lead'] == 0 else \
+                                node_blockchain[:-attr['lead']]
+                            flag = '-2'
+                        else:
                             attr['lead'] -= 1
                             revealed_blockchain = node_blockchain[:-attr['lead']]
-                        else:
-                            attr['lead'] = 0
-                            revealed_blockchain = node_blockchain
+                            flag = '-1'
                         pass_blockchain(node, revealed_blockchain, False)
-                        pass_blockchain(node, new_blockchain, True)
+                        pass_blockchain(node, new_blockchain, True, flag)
 
     def sample_mining_times():
         mining_power = np.array([G.nodes[node]['power'] for node in actions_t['pending']])
@@ -243,11 +282,11 @@ def mine(G: nx.Graph, pools: List[nx.Graph], min_time: int, max_time: int, messa
     ndigits = -int(math.log10(eps))
     for node in G:
         attr = G.nodes[node]
-        attr['blockchain'] = [Block(None, 0)]
+        attr['blockchain'] = [Block(None, 0)]  # this is the genesis block
         attr['seen'] = []
         attr['messages'] = {}
 
-    actions = {0: {'pending': [node for node in G], 'receive': [], 'mine': []}}
+    actions = {0: {'pending': G.nodes, 'receive': [], 'mine': []}}
     history = {}
     last_blocks = [0 for _ in G]
     n2mt = {}  # node to mine time
@@ -261,7 +300,7 @@ def mine(G: nx.Graph, pools: List[nx.Graph], min_time: int, max_time: int, messa
         t = next(times)
         if t in actions:
             actions_t = actions.pop(t)
-            history[t] = actions_t.copy()
+            history[t] = actions_t
             print_progress(t, min_time, start, False, prints=prints)
             for node in actions_t['mine']:
                 last_block_id += 1
@@ -269,7 +308,6 @@ def mine(G: nx.Graph, pools: List[nx.Graph], min_time: int, max_time: int, messa
             for node in actions_t['receive']:
                 receive_block()
             sample_mining_times()
-            history[t].update(actions_t)
 
             forked = any(item != last_blocks[0] for item in last_blocks)
             if forked:
