@@ -103,6 +103,7 @@ def generate_network_and_pools(num_nodes: int, num_pools: int, pool_powers: list
         if len(pool) > 1:
             max_edges = math.comb(len(pool), 2)
             if i < num_pools - 1:
+                assert_pool_connected(G, pool)
                 num_edges = len(pool.edges)
                 if get_connectivity(pool) < pool_connectivity:
                     num_missing = int(max_edges * pool_connectivity) - num_edges
