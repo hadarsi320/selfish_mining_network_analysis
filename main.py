@@ -332,7 +332,7 @@ def mining_simulation(input=None):
         draw_graph(G, pools)
 
     rel_rewards, forked_time = mine(G, pools, args.turns, args.turns * 1.1, args.message_time, args.tie_breaking,
-                                    prints=args.prints)
+                                    prints=args.prints, eps=args.eps)
 
     output = {key: str(value) if isinstance(value, Path) else value for key, value in args.__dict__.items()}
     output.update({'pool_powers': pool_powers, 'pool_sizes': pool_sizes,
