@@ -68,11 +68,12 @@ def generate_network_and_pools(num_nodes: int, num_pools: int, graph_args, pool_
     and is just the rest of the nodes
     :param pool_powers: An optional list of the strength of the pools
     :param pool_sizes: A list of the sizes of the pools in the graph
-    :param pool_connectivity: ??
-    :param selfish_mining: Whether the first pool is doing selfish mining
-    :param graph_args:
+    :param pool_connectivity: The connectivity of the nodes in the pool to the coordinator
+    :param selfish_mining: Whether the first pool is performing selfish mining
+    :param graph_args: Arguments for graph creation
     :return: An nx graph object of the entire network, and a list of sub graphs for each pool
     """
+    assert num_pools >= 1
     if selfish_mining:
         assert num_pools > 1, 'Selfish mining only makes sense when pools exist'
 
@@ -91,9 +92,9 @@ def generate_network_and_pools(num_nodes: int, num_pools: int, graph_args, pool_
         else:
             raise ValueError('The list cannot have more objects than there are pools')
 
-    assert 0 <= pool_connectivity <= 1, 'Pool connectivity is a factor between 0 and 1'
+    assert 0 < pool_connectivity <= 1, 'The coordinator cannot be disconnected from the pool'
 
-    G = nx.powerlaw_cluster_graph(num_nodes, int(graph_args[0]), float(graph_args[1]))
+    G: Graph = nx.powerlaw_cluster_graph(num_nodes, int(graph_args[0]), float(graph_args[1]))
     assert nx.is_connected(G), 'The bitcoin network must be connected'
 
     nodes = random.sample(list(G.nodes), len(G))
@@ -119,34 +120,31 @@ def generate_network_and_pools(num_nodes: int, num_pools: int, graph_args, pool_
         powers[pool] = powers[pool] / powers[pool].sum() * pool_power
 
     nx.set_node_attributes(G, dict(zip(G, powers)), name='power')
-    G_pools = [nx.subgraph(G, pool) for pool in pools]
 
-    # the last pool is just the rest of the nodes and not a single entity, and therefore we don't require them to
-    # have any
-    for i, pool in enumerate(G_pools):
+    # the last pool is just the rest of the nodes and not a single entity,
+    # therefore they don't have a coordinator
+    for i, pool in enumerate(pools):
         if len(pool) > 1:
-            max_edges = math.comb(len(pool), 2)
             if i < num_pools - 1:
-                assert_pool_connected(G, pool)
-                num_edges = len(pool.edges)
-                if get_connectivity(pool) < pool_connectivity:
-                    num_missing = int(max_edges * pool_connectivity) - num_edges
-                    total_edges = nx.complete_graph(pool.nodes).edges
-                    edges_to_add = random.sample(list(total_edges - pool.edges), num_missing)
-                    G.add_edges_from(edges_to_add)
-            logging.info('Pool {} has connectivity {:.3f}{}'.
-                         format(i + 1, get_connectivity(pool),
-                                ', it is the rest pseudo pool' * (i == num_pools - 1)))
+                coordinator = f'coordinator{i}'
+                G.add_node(coordinator)
+                pool.append(coordinator)
+                num_edges = int(pool_connectivity * len(pool))
+                assert num_edges > 0
+                connected_nodes = random.sample(pool, num_edges)
+                G.add_edges_from([(coordinator, node) for node in connected_nodes])
+                logging.info(f'Pool {i + 1} has {len(pool):,} nodes and {num_edges:,} connections to its coordinator')
         else:
             logging.info(f'Pool {i + 1} has a single node')
-    logging.info('The total network connectivity is {:.3f}'.format(get_connectivity(G)))
 
+    G_pools = [nx.subgraph(G, pool) for pool in pools]
     for node in G:
         if selfish_mining and node in G_pools[0]:
             G.nodes[node]['selfish'] = True
-            G.nodes[node]['lead'] = 0
         else:
             G.nodes[node]['selfish'] = False
+    if selfish_mining:
+        G.nodes['coordinator0']['lead'] = 0
 
     return G, G_pools, powers, pool_powers, pool_sizes
 
