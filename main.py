@@ -139,10 +139,9 @@ def generate_network_and_pools(num_nodes: int, num_pools: int, graph_args, pool_
 
     G_pools = [nx.subgraph(G, pool) for pool in pools]
     for node in G:
-        if selfish_mining and node in G_pools[0]:
-            G.nodes[node]['selfish'] = True
-        else:
-            G.nodes[node]['selfish'] = False
+        G.nodes[node]['selfish'] = selfish_mining and node in G_pools[0]
+        G.nodes[node]['in_pool'] = node not in G_pools[-1]
+
     if selfish_mining:
         G.nodes['coordinator0']['lead'] = 0
 
