@@ -160,10 +160,22 @@ def mine(G: nx.Graph, pools: List[nx.Graph], min_time: int, max_time: int, messa
     :param message_time:
     :param tie_breaking:
     :param eps:
+    :param prints:
     :return:
     """
     last_block_id = 0
     n2p = {node: pool for pool in pools for node in pool}
+    ndigits = -int(math.log10(eps))
+    for node in G:
+        attr = G.nodes[node]
+        attr['blockchain'] = [Block(None, 0, 0)]  # this is the genesis block
+        attr['seen'] = []
+        attr['messages'] = {}
+
+    actions = {0: {'pending': set(G.nodes), 'receive': [], 'mine': []}}
+    history = {}
+    last_blocks = [0 for _ in G]
+    n2mt = {}  # node to mine time
 
     def init_actions(t):
         if t not in actions:
@@ -285,18 +297,6 @@ def mine(G: nx.Graph, pools: List[nx.Graph], min_time: int, max_time: int, messa
             actions[mine_time]['mine'].append(node)
             n2mt[node] = mine_time
 
-    ndigits = -int(math.log10(eps))
-    for node in G:
-        attr = G.nodes[node]
-        attr['blockchain'] = [Block(None, 0, 0)]  # this is the genesis block
-        attr['seen'] = []
-        attr['messages'] = {}
-
-    actions = {0: {'pending': set(G.nodes), 'receive': [], 'mine': []}}
-    history = {}
-    last_blocks = [0 for _ in G]
-    n2mt = {}  # node to mine time
-
     times = iter(np.arange(0, min_time * 2, eps).round(ndigits))
     t = 0
     forked = False
@@ -344,7 +344,7 @@ def parse_args(input: list):
     parser.add_argument('--message-time', type=float, default=0.01)
     parser.add_argument('--eps', type=float, default=0.001)
     parser.add_argument('--tie-breaking', type=str, choices=['first', 'random'], default='first')
-    parser.add_argument('--selfish-mining', action='store_true')  # TODO implement
+    parser.add_argument('--selfish-mining', action='store_true')
     parser.add_argument('--banning', action='store_true')  # TODO implement
 
     parser.add_argument('-s', '--seed', type=int, default=42, help='random seed')
