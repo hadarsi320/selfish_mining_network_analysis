@@ -8,6 +8,17 @@ from main import mining_simulation
 from utils import convert_args_dict
 
 
+def args_to_outf(args, flags):
+    return Path(
+        'outputs/{tie-breaking}_{}_{pool-connectivity}_{pool-sizes}_{pool-powers}_{seed}.json'
+        .format('selfish' if 'selfish_mining' in flags else 'honest', **args))
+
+
+def outf_to_args(outf):
+    # TODO implement
+    pass
+
+
 def rr_by_power_exp():
     default_args = {'num-nodes': 1000, 'turns': 1000, 'num-pools': 5, 'pool-connectivity': 0.5, 'prints': 'parallel'}
     default_flags = []
