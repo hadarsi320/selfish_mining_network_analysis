@@ -20,34 +20,32 @@ def outf_to_args(outf):
 
 
 def rr_by_power_exp():
-    default_args = {'num-nodes': 1000, 'turns': 1000, 'num-pools': 5, 'pool-connectivity': 0.5, 'prints': 'parallel'}
+    default_args = {'num-nodes': 1000, 'turns': 1000, 'num-pools': 2, 'prints': 'parallel'}
     default_flags = []
     args_lists = []
     for tie_breaking in ['first', 'random']:
         for selfish_mining in [False]:
-            for banning in [False]:
-                for pool_power in np.arange(0.05, 0.5, 0.05):
-                    for seed in range(5):
-                        args = default_args.copy()
-                        flags = default_flags.copy()
+            for size in [0.3]:
+                for connectivity in [0.5]:
+                    for power in np.arange(0.05, 0.5, 0.05).round(2):
+                        for seed in range(5):
+                            args = default_args.copy()
+                            flags = default_flags.copy()
 
-                        if selfish_mining:
-                            flags.append('selfish-mining')
-                        if banning:
-                            flags.append('banning')
-                        args['tie-breaking'] = tie_breaking
-                        args['pool-powers'] = pool_power
-                        args['seed'] = seed
-                        args['outf'] = Path('outputs/{tie-breaking}/{}/{pool-powers}/{seed}/out.json'.format(
-                            'selfish' if selfish_mining else 'honest', **args))
+                            if selfish_mining:
+                                flags.append('selfish-mining')
+                            args['tie-breaking'] = tie_breaking
+                            args['pool-sizes'] = size
+                            args['pool-connectivity'] = connectivity
+                            args['pool-powers'] = power
+                            args['seed'] = seed
+                            args['outf'] = args_to_outf(args, flags)
+                            if args['outf'].exists():
+                                print('Skipping experiment as outf exists', args['outf'])
+                                continue
 
-                        # print('Running experiment number {} with outf {}'.format(i, args['outf']))
-                        if args['outf'].exists():
-                            print('Skipping experiment as outf exists', args['outf'])
-                            continue
-
-                        cmd_args = convert_args_dict(args, flags)
-                        args_lists.append(cmd_args)
+                            cmd_args = convert_args_dict(args, flags)
+                            args_lists.append(cmd_args)
 
     print('There are', len(args_lists), 'runs in total')
     start = datetime.now()
