@@ -24,7 +24,7 @@ def rr_by_power_exp():
     default_flags = []
     args_lists = []
     for tie_breaking in ['first', 'random']:
-        for selfish_mining in [False]:
+        for selfish_mining in [False, True]:
             for size in [0.3]:
                 for connectivity in [0.5]:
                     for power in np.arange(0.05, 0.5, 0.05).round(2):
@@ -49,7 +49,7 @@ def rr_by_power_exp():
 
     print('There are', len(args_lists), 'runs in total')
     start = datetime.now()
-    with Pool(5) as p:
+    with Pool(10) as p:
         p.map(mining_simulation, args_lists)
     print('The total runtime is ', datetime.now() - start)
 
