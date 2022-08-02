@@ -12,13 +12,13 @@ import numpy as np
 from networkx import Graph
 
 from plotting import draw_graph, plot_relative_reward
-from utils import sample_sum_to, get_connectivity, print_progress
+from utils import sample_sum_to, print_progress
 
 
 class Block:
     def __init__(self, creator, id, t):
         self.creator = creator
-        self.id = id
+        self.id = str(id)
         self.time = t
 
     def __str__(self):
@@ -29,7 +29,7 @@ class Block:
 
 
 class Message:
-    def __init__(self, blockchain, sender, flag=None):
+    def __init__(self, blockchain, sender, flag=''):
         self._blockchain = blockchain.copy()
         self.sender = sender
         self.flag = flag
@@ -46,6 +46,10 @@ class Message:
     @property
     def blockchain(self):
         return self._blockchain.copy()
+
+    @property
+    def id(self):
+        return self._blockchain[-1].id + self.flag
 
 
 def assert_pool_connected(G: Graph, pool: list):
@@ -121,29 +125,23 @@ def generate_network_and_pools(num_nodes: int, num_pools: int, graph_args, pool_
 
     nx.set_node_attributes(G, dict(zip(G, powers)), name='power')
 
-    # the last pool is just the rest of the nodes and not a single entity,
-    # therefore they don't have a coordinator
-    for i, pool in enumerate(pools):
-        if len(pool) > 1:
-            if i < num_pools - 1:
-                coordinator = f'coordinator{i}'
-                G.add_node(coordinator)
-                pool.append(coordinator)
-                num_edges = int(pool_connectivity * len(pool))
-                assert num_edges > 0
-                connected_nodes = random.sample(pool, num_edges)
-                G.add_edges_from([(coordinator, node) for node in connected_nodes])
-                logging.info(f'Pool {i + 1} has {len(pool):,} nodes and {num_edges:,} connections to its coordinator')
-        else:
-            logging.info(f'Pool {i + 1} has a single node')
+    # if the first pool performs selfish mining, it must have a coordinator
+    if selfish_mining:
+        assert num_pools > 1, 'If there are no pools, there can\'t be selfish mining'
+        coordinator = f'coordinator'
+        G.add_node(coordinator)
+        num_edges = int(pool_connectivity * len(pools[0]))
+        assert num_edges > 0
+        connected_nodes = random.sample(pools[0], num_edges)
+        pools[0].append(coordinator)
+        G.add_edges_from([(coordinator, node) for node in connected_nodes])
+        logging.info('The selfish pool has {:,} miners and {:,} connections to its coordinator'
+                     .format(len(pools[0]) - 1, num_edges))
+        G.nodes['coordinator']['lead'] = 0
 
     G_pools = [nx.subgraph(G, pool) for pool in pools]
     for node in G:
         G.nodes[node]['selfish'] = selfish_mining and node in G_pools[0]
-        G.nodes[node]['in_pool'] = node not in G_pools[-1]
-
-    if selfish_mining:
-        G.nodes['coordinator0']['lead'] = 0
 
     return G, G_pools, powers, pool_powers, pool_sizes
 
@@ -163,10 +161,18 @@ def compute_relative_rewards(G, pools, n2p):
 
 
 def update_public_branch(node_attributes, new_blockchain):
-    assert 1 <= len(new_blockchain) - len(node_attributes['public_branch']) <= 2, \
+    assert len(new_blockchain) - len(node_attributes['public_branch']) == 1, \
         'The actual public branch is of length {} while this node thought it was of length {}'.format(
             len(new_blockchain), len(node_attributes['public_branch']) + 1)
     node_attributes['public_branch'] = new_blockchain.copy()
+
+
+def get_miners(G):
+    return [node for node in G if not str(node).startswith('coordinator')]
+
+
+def is_coordinator(node):
+    return node == 'coordinator'
 
 
 def mine(G: nx.Graph, pools: List[nx.Graph], min_time: int, max_time: int, message_time, tie_breaking,
@@ -187,14 +193,15 @@ def mine(G: nx.Graph, pools: List[nx.Graph], min_time: int, max_time: int, messa
     ndigits = -int(math.log10(eps))
     for node in G:
         attr = G.nodes[node]
-        attr['blockchain'] = [Block(None, 0, 0)]  # this is the genesis block
         attr['seen'] = []
-        attr['last_block'] = 0
         attr['messages'] = {}
-        if attr['selfish']:
-            attr['public_branch'] = [Block(None, 0, 0)]
+        attr['blockchain'] = [Block(None, 0, 0)]  # this is the genesis block
+        if not attr['selfish'] or is_coordinator(node):
+            attr['last_block'] = 0
+            if is_coordinator(node):
+                attr['public_branch'] = [Block(None, 0, 0)]
 
-    actions = {0: {'pending': set(G.nodes), 'receive': [], 'mine': []}}
+    actions = {0: {'pending': get_miners(G), 'receive': [], 'mine': []}}
     history = {}
     n2mt = {}  # node to mine time
 
@@ -211,9 +218,8 @@ def mine(G: nx.Graph, pools: List[nx.Graph], min_time: int, max_time: int, messa
             actions.pop(n2mt[node])
         n2mt.pop(node)
 
-    def pass_blockchain(sender, new_blockchain, only_pool, flag=None):
+    def pass_blockchain(sender, new_blockchain, only_pool=False, flag=''):
         # this function alerts other miners of the creation of a new block
-        message = Message(new_blockchain, sender, flag)
         receive_time = round(t + message_time, ndigits)
         init_actions(receive_time)
         neighbors = set(G.neighbors(sender))
@@ -223,7 +229,9 @@ def mine(G: nx.Graph, pools: List[nx.Graph], min_time: int, max_time: int, messa
 
         for neighbor in neighbors:
             neighbor_attr = G.nodes[neighbor]
-            if block_id not in neighbor_attr['seen']:
+            nflag = flag if neighbor_attr['selfish'] and not is_coordinator(neighbor) else ''
+            message = Message(new_blockchain, sender, nflag)
+            if message.id not in neighbor_attr['seen']:
                 if receive_time not in neighbor_attr['messages']:
                     neighbor_attr['messages'][receive_time] = [message]
                     actions[receive_time]['receive'].append(neighbor)
@@ -235,12 +243,12 @@ def mine(G: nx.Graph, pools: List[nx.Graph], min_time: int, max_time: int, messa
                     cancel_mine(neighbor)
 
     def mine_block(node, block_id):
+        new_block = Block(node, block_id, t)
         attr = G.nodes[node]
-        attr['blockchain'].append(Block(node, block_id, t))
+        attr['blockchain'].append(new_block)
         attr['seen'].append(block_id)
-        attr['last_block'] = block_id
-        if attr['selfish']:
-            attr['lead'] += 1
+        if not attr['selfish']:
+            attr['last_block'] = block_id
         pass_blockchain(node, attr['blockchain'], only_pool=attr['selfish'])
         actions_t['pending'].add(node)
         n2mt.pop(node)
@@ -252,62 +260,66 @@ def mine(G: nx.Graph, pools: List[nx.Graph], min_time: int, max_time: int, messa
              and mines on it
             """
             attr['blockchain'] = new_blockchain
-            attr['last_block'] = block_id
-            actions_t['pending'].add(node)
+            attr['last_block'] = new_blockchain[-1].id
+            if not is_coordinator(node):
+                actions_t['pending'].add(node)
             if node in n2mt:
                 cancel_mine(node)
 
         attr = G.nodes[node]
         messages = attr['messages'].pop(t)
         for message in messages:
-            node_blockchain = attr['blockchain']
             new_blockchain = message.blockchain
-            flag = message.flag
-            created_by_pool = same_pool(new_blockchain[-1].creator, node)
-            block_id = new_blockchain[-1].id
-            if block_id not in attr['seen']:
-                attr['seen'].extend(get_ids(node_blockchain, new_blockchain))
-                if len(node_blockchain) < len(new_blockchain):
-                    only_pool = False
-                    if attr['selfish']:
-                        if created_by_pool:
-                            assert len(new_blockchain) == len(node_blockchain) + 1
-                            attr['lead'] += 1
-                            only_pool = True
-                        else:
-                            assert attr['lead'] == 0
-                            update_public_branch(attr, new_blockchain)
-                    accept()
-                    pass_blockchain(node, new_blockchain, only_pool)
+            if attr['selfish'] and not is_coordinator(node) and message.id not in attr['seen']:
+                attr['seen'].append(message.id)
+                attr['blockchain'] = message.blockchain
+                pass_blockchain(node, new_blockchain, only_pool=message.flag != 'leak', flag=message.flag)
 
-                elif len(new_blockchain) == len(node_blockchain):
-                    if attr['selfish']:
-                        if created_by_pool:
-                            accept()
-                            pass_blockchain(node, new_blockchain, True)
-                        elif attr['lead'] == 1:
-                            attr['lead'] -= 1
-                            update_public_branch(attr, new_blockchain)
-                            pass_blockchain(node, node_blockchain, False)
-                            pass_blockchain(node, new_blockchain, True, '-1')
-                    elif tie_breaking == 'random' and random.random() > 0.5:
+            else:
+                cur_blockchain = attr['blockchain']
+                creator = new_blockchain[-1].creator
+                created_by_pool = same_pool(creator, node)
+                if message.id not in attr['seen']:
+                    # attr['seen'].extend(get_ids(cur_blockchain, new_blockchain))
+                    attr['seen'].append(message.id)
+
+                    if len(new_blockchain) > len(cur_blockchain):
+                        if is_coordinator(node):
+                            if created_by_pool:
+                                assert len(new_blockchain) == len(cur_blockchain) + 1
+                                attr['lead'] += 1
+                            else:
+                                assert attr['lead'] == 0
+                                update_public_branch(attr, new_blockchain)
+                                pass_blockchain(node, new_blockchain, flag='leak')
+                        else:
+                            pass_blockchain(node, new_blockchain)
                         accept()
-                        pass_blockchain(node, new_blockchain, False)
 
-                elif attr['selfish']:
-                    if not created_by_pool and attr['lead'] >= 1 and len(new_blockchain) > len(attr['public_branch']):
-                        update_public_branch(attr, new_blockchain)
-                        if attr['lead'] <= 2 or flag == '-2':
-                            attr['lead'] = max(attr['lead'] - 2, 0)
-                            revealed_blockchain = node_blockchain if attr['lead'] == 0 else \
-                                node_blockchain[:-attr['lead']]
-                            flag = '-2'
-                        else:
-                            attr['lead'] -= 1
-                            revealed_blockchain = node_blockchain[:-attr['lead']]
-                            flag = '-1'
-                        pass_blockchain(node, revealed_blockchain, False)
-                        pass_blockchain(node, new_blockchain, True, flag)
+                    elif len(new_blockchain) == len(cur_blockchain):
+                        if is_coordinator(node):
+                            if created_by_pool:
+                                accept()
+                            elif attr['lead'] == 1:
+                                attr['lead'] -= 1
+                                update_public_branch(attr, new_blockchain)
+                                pass_blockchain(node, cur_blockchain, flag='leak')
+                        elif tie_breaking == 'random' and random.random() > 0.5:
+                            accept()
+                            pass_blockchain(node, new_blockchain, False)
+
+                    elif is_coordinator(node):
+                        if not created_by_pool and len(new_blockchain) > len(attr['public_branch']):
+                            update_public_branch(attr, new_blockchain)
+                            assert attr['lead'] >= 2
+                            if attr['lead'] == 2:
+                                attr['lead'] = 0
+                                revealed_blockchain = cur_blockchain
+                                update_public_branch(attr, revealed_blockchain)
+                            else:
+                                attr['lead'] -= 1
+                                revealed_blockchain = cur_blockchain[:-attr['lead']]
+                            pass_blockchain(node, revealed_blockchain, flag='leak')
 
     def sample_mining_times():
         mining_power = np.array([G.nodes[node]['power'] for node in actions_t['pending']])
@@ -331,12 +343,13 @@ def mine(G: nx.Graph, pools: List[nx.Graph], min_time: int, max_time: int, messa
             print_progress(t, min_time, start, False, prints=prints)
             for node in actions_t['mine']:
                 last_block_id += 1
-                mine_block(node, last_block_id)
+                mine_block(node, str(last_block_id))
             for node in actions_t['receive']:
                 receive_messages()
             sample_mining_times()
 
-            forked = any(block_id != G.nodes[0]['last_block'] for block_id in
+            last_block = next(iter(nx.get_node_attributes(G, 'last_block').values()))
+            forked = any(block_id != last_block for block_id in
                          nx.get_node_attributes(G, 'last_block').values())
             if forked:
                 forked_time += eps
