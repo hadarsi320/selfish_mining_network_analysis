@@ -16,12 +16,13 @@ from utils import sample_sum_to, get_connectivity, print_progress
 
 
 class Block:
-    def __init__(self, creator, bid):
+    def __init__(self, creator, id, t):
         self.creator = creator
-        self.id = bid
+        self.id = id
+        self.time = t
 
     def __str__(self):
-        return f'{self.id} ({self.creator})'
+        return f'Block({self.id}, {self.creator}, {self.time})'
 
     def __repr__(self):
         return self.__str__()
@@ -145,6 +146,10 @@ def generate_network_and_pools(num_nodes: int, num_pools: int, graph_args, pool_
     return G, G_pools, powers, pool_powers, pool_sizes
 
 
+def get_ids(cur_blockchain, new_blockchain):
+    return [block.id for block in new_blockchain[len(cur_blockchain) - 1:]]
+
+
 def mine(G: nx.Graph, pools: List[nx.Graph], min_time: int, max_time: int, message_time, tie_breaking,
          prints, eps=1e-3):
     """
@@ -198,7 +203,7 @@ def mine(G: nx.Graph, pools: List[nx.Graph], min_time: int, max_time: int, messa
 
     def mine_block(node, block_id):
         attr = G.nodes[node]
-        attr['blockchain'].append(Block(node, block_id))
+        attr['blockchain'].append(Block(node, block_id, t))
         attr['seen'].append(block_id)
         last_blocks[node] = block_id
         if attr['selfish']:
@@ -222,6 +227,7 @@ def mine(G: nx.Graph, pools: List[nx.Graph], min_time: int, max_time: int, messa
                     pass_blockchain(node, new_blockchain, True)
                 else:
                     assert attr['lead'] == 0
+                    pass_blockchain(node, new_blockchain, False)
             else:
                 pass_blockchain(node, new_blockchain, False)
 
@@ -240,7 +246,7 @@ def mine(G: nx.Graph, pools: List[nx.Graph], min_time: int, max_time: int, messa
             created_by_pool = same_pool(new_blockchain[-1].creator, node)
             block_id = new_blockchain[-1].id
             if block_id not in attr['seen']:
-                attr['seen'].append(block_id)
+                attr['seen'].extend(get_ids(node_blockchain, new_blockchain))
                 if len(new_blockchain) > len(node_blockchain):
                     assert flag is None
                     accept()
@@ -282,11 +288,11 @@ def mine(G: nx.Graph, pools: List[nx.Graph], min_time: int, max_time: int, messa
     ndigits = -int(math.log10(eps))
     for node in G:
         attr = G.nodes[node]
-        attr['blockchain'] = [Block(None, 0)]  # this is the genesis block
+        attr['blockchain'] = [Block(None, 0, 0)]  # this is the genesis block
         attr['seen'] = []
         attr['messages'] = {}
 
-    actions = {0: {'pending': G.nodes, 'receive': [], 'mine': []}}
+    actions = {0: {'pending': set(G.nodes), 'receive': [], 'mine': []}}
     history = {}
     last_blocks = [0 for _ in G]
     n2mt = {}  # node to mine time
