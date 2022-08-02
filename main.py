@@ -30,18 +30,22 @@ class Block:
 
 class Message:
     def __init__(self, blockchain, sender, flag=None):
-        self.blockchain = blockchain.copy()
+        self._blockchain = blockchain.copy()
         self.sender = sender
         self.flag = flag
 
     def __str__(self):
-        repr = f'{self.blockchain} [{self.sender}]'
+        repr = f'{self._blockchain} [{self.sender}]'
         if self.flag:
             repr += f' ({self.flag})'
         return repr
 
     def __repr__(self):
         return self.__str__()
+
+    @property
+    def blockchain(self):
+        return self._blockchain.copy()
 
 
 def assert_pool_connected(G: Graph, pool: list):
@@ -66,6 +70,7 @@ def generate_network_and_pools(num_nodes: int, num_pools: int, graph_args, pool_
     :param pool_sizes: A list of the sizes of the pools in the graph
     :param pool_connectivity: ??
     :param selfish_mining: Whether the first pool is doing selfish mining
+    :param graph_args:
     :return: An nx graph object of the entire network, and a list of sub graphs for each pool
     """
     if selfish_mining:
@@ -150,6 +155,23 @@ def get_ids(cur_blockchain, new_blockchain):
     return [block.id for block in new_blockchain[len(cur_blockchain) - 1:]]
 
 
+def compute_relative_rewards(G, pools, n2p):
+    rewards = dict.fromkeys(pools, 0)
+    blockchain = G.nodes[0]['blockchain']
+    for block in blockchain[1:]:  # ignoring the 1st block
+        rewards[n2p[block.creator]] += 1
+    rewards = np.array(list(rewards.values()))
+    relative_rewards = rewards / rewards.sum()
+    return relative_rewards
+
+
+def update_public_branch(node_attributes, new_blockchain):
+    assert 1 <= len(new_blockchain) - len(node_attributes['public_branch']) <= 2, \
+        'The actual public branch is of length {} while this node thought it was of length {}'.format(
+            len(new_blockchain), len(node_attributes['public_branch']) + 1)
+    node_attributes['public_branch'] = new_blockchain.copy()
+
+
 def mine(G: nx.Graph, pools: List[nx.Graph], min_time: int, max_time: int, message_time, tie_breaking,
          prints, eps=1e-3):
     """
@@ -170,11 +192,13 @@ def mine(G: nx.Graph, pools: List[nx.Graph], min_time: int, max_time: int, messa
         attr = G.nodes[node]
         attr['blockchain'] = [Block(None, 0, 0)]  # this is the genesis block
         attr['seen'] = []
+        attr['last_block'] = 0
         attr['messages'] = {}
+        if attr['selfish']:
+            attr['public_branch'] = [Block(None, 0, 0)]
 
     actions = {0: {'pending': set(G.nodes), 'receive': [], 'mine': []}}
     history = {}
-    last_blocks = [0 for _ in G]
     n2mt = {}  # node to mine time
 
     def init_actions(t):
@@ -217,34 +241,22 @@ def mine(G: nx.Graph, pools: List[nx.Graph], min_time: int, max_time: int, messa
         attr = G.nodes[node]
         attr['blockchain'].append(Block(node, block_id, t))
         attr['seen'].append(block_id)
-        last_blocks[node] = block_id
+        attr['last_block'] = block_id
         if attr['selfish']:
             attr['lead'] += 1
-        pass_blockchain(node, attr['blockchain'], attr['selfish'])
+        pass_blockchain(node, attr['blockchain'], only_pool=attr['selfish'])
         actions_t['pending'].add(node)
         n2mt.pop(node)
 
-    def receive_block():
+    def receive_messages():
         def accept():
             """
-            When this function runs, the current node accepts a received blockchain as the blockchain to mine on
+            When this function runs, the current node accepts a received blockchain as the head of the blockchain
+             and mines on it
             """
-            old_blockchain = attr['blockchain']
             attr['blockchain'] = new_blockchain
-            if attr['selfish']:
-                if created_by_pool:
-                    if len(old_blockchain) < len(new_blockchain):
-                        # assert G.nodes[sender]['lead'] >= attr['lead'] + 1
-                        attr['lead'] += 1
-                    pass_blockchain(node, new_blockchain, True)
-                else:
-                    assert attr['lead'] == 0
-                    pass_blockchain(node, new_blockchain, False)
-            else:
-                pass_blockchain(node, new_blockchain, False)
-
+            attr['last_block'] = block_id
             actions_t['pending'].add(node)
-            last_blocks[node] = block_id
             if node in n2mt:
                 cancel_mine(node)
 
@@ -252,30 +264,42 @@ def mine(G: nx.Graph, pools: List[nx.Graph], min_time: int, max_time: int, messa
         messages = attr['messages'].pop(t)
         for message in messages:
             node_blockchain = attr['blockchain']
-            # sender = message.sender
-            new_blockchain = message.blockchain.copy()
+            new_blockchain = message.blockchain
             flag = message.flag
             created_by_pool = same_pool(new_blockchain[-1].creator, node)
             block_id = new_blockchain[-1].id
             if block_id not in attr['seen']:
                 attr['seen'].extend(get_ids(node_blockchain, new_blockchain))
-                if len(new_blockchain) > len(node_blockchain):
-                    assert flag is None
+                if len(node_blockchain) < len(new_blockchain):
+                    only_pool = False
+                    if attr['selfish']:
+                        if created_by_pool:
+                            assert len(new_blockchain) == len(node_blockchain) + 1
+                            attr['lead'] += 1
+                            only_pool = True
+                        else:
+                            assert attr['lead'] == 0
+                            update_public_branch(attr, new_blockchain)
                     accept()
+                    pass_blockchain(node, new_blockchain, only_pool)
 
                 elif len(new_blockchain) == len(node_blockchain):
                     if attr['selfish']:
                         if created_by_pool:
                             accept()
+                            pass_blockchain(node, new_blockchain, True)
                         elif attr['lead'] == 1:
-                            attr['lead'] = 0
+                            attr['lead'] -= 1
+                            update_public_branch(attr, new_blockchain)
                             pass_blockchain(node, node_blockchain, False)
                             pass_blockchain(node, new_blockchain, True, '-1')
                     elif tie_breaking == 'random' and random.random() > 0.5:
                         accept()
+                        pass_blockchain(node, new_blockchain, False)
 
                 elif attr['selfish']:
-                    if not created_by_pool and attr['lead'] >= 1:
+                    if not created_by_pool and attr['lead'] >= 1 and len(new_blockchain) > len(attr['public_branch']):
+                        update_public_branch(attr, new_blockchain)
                         if attr['lead'] <= 2 or flag == '-2':
                             attr['lead'] = max(attr['lead'] - 2, 0)
                             revealed_blockchain = node_blockchain if attr['lead'] == 0 else \
@@ -312,23 +336,19 @@ def mine(G: nx.Graph, pools: List[nx.Graph], min_time: int, max_time: int, messa
                 last_block_id += 1
                 mine_block(node, last_block_id)
             for node in actions_t['receive']:
-                receive_block()
+                receive_messages()
             sample_mining_times()
 
-            forked = any(item != last_blocks[0] for item in last_blocks)
+            forked = any(block_id != G.nodes[0]['last_block'] for block_id in
+                         nx.get_node_attributes(G, 'last_block').values())
             if forked:
                 forked_time += eps
     print()
     finish = t
     logging.info('The blockchain was forked {:.2f}% of the time'.format(forked_time / finish * 100))
 
-    rewards = dict.fromkeys(pools, 0)
-    blockchain = G.nodes[0]['blockchain']
-    for block in blockchain[1:]:  # ignoring the 1st block
-        rewards[n2p[block.creator]] += 1
-    rewards = np.array(list(rewards.values()))
-    relative_rewards = rewards / rewards.sum()
-    return relative_rewards, forked_time / finish
+    rr = compute_relative_rewards(G, pools, n2p)
+    return rr, forked_time / finish
 
 
 def parse_args(input: list):
