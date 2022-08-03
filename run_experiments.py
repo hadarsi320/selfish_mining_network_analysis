@@ -27,7 +27,7 @@ def rr_by_power_exp():
     args_lists = []
     for tie_breaking in ['first', 'random']:
         for selfish_mining in [False, True]:
-            for size in [0.3]:
+            for size in [0.1, 0.3, 0.5, 0.8]:
                 for connectivity in [0.5]:
                     for power in np.arange(0.05, 0.5, 0.05).round(2):
                         for seed in range(5):
