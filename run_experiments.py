@@ -4,6 +4,7 @@ from multiprocessing import Pool
 from pathlib import Path
 
 import numpy as np
+from tqdm import tqdm
 
 from main import mining_simulation
 from utils import convert_args_dict
@@ -50,9 +51,9 @@ def rr_by_power_exp():
 
     print('There are', len(args_lists), 'runs in total')
     start = datetime.now()
-    with Pool(10) as p:
-        for i, outf in enumerate(p.map(mining_simulation, args_lists), 1):
-            sys.stderr.write('\rdone {:%} [saved in {}]'.format(i / len(args_lists), outf))
+    with Pool() as p:
+        for _ in tqdm(p.map(mining_simulation, args_lists)):
+            pass
 
     print('The total runtime is ', datetime.now() - start)
 
