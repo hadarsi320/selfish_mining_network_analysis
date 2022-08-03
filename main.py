@@ -416,11 +416,9 @@ def mining_simulation(input=None):
                    'relative_rewards': rel_rewards.tolist(), 'forked_time': forked_time})
     json.dump(output, args.outf.open('w'), indent=4)
 
-    if args.prints == 'parallel':
-        print('Finished run, saved at', args.outf)
-
     if args.plot_graph or args.debug:
         plot_relative_reward(pool_powers, rel_rewards, args.selfish_mining)
+    return args.outf
 
 
 if __name__ == '__main__':
