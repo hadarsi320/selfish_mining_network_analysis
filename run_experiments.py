@@ -1,3 +1,4 @@
+import sys
 from datetime import datetime
 from multiprocessing import Pool
 from pathlib import Path
@@ -11,7 +12,7 @@ from utils import convert_args_dict
 def args_to_outf(args, flags):
     return Path(
         'outputs/{tie-breaking}_{}_{pool-connectivity}_{pool-sizes}_{pool-powers}_{seed}.json'
-        .format('selfish' if 'selfish_mining' in flags else 'honest', **args))
+        .format('selfish' if 'selfish-mining' in flags else 'honest', **args))
 
 
 def outf_to_args(outf):
@@ -50,7 +51,9 @@ def rr_by_power_exp():
     print('There are', len(args_lists), 'runs in total')
     start = datetime.now()
     with Pool(10) as p:
-        p.map(mining_simulation, args_lists)
+        for i, outf in enumerate(p.map(mining_simulation, args_lists), 1):
+            sys.stderr.write('\rdone {:%} [saved in {}]'.format(i / len(args_lists), outf))
+
     print('The total runtime is ', datetime.now() - start)
 
 
