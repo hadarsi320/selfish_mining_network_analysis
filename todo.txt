@@ -1,0 +1,29 @@
+1) Implement Forking - DONE
+2) Implement Selfish Mining
+3) Implement Banning
+
+Experiments:
+* Show that the experiments satisfy the basic assumption that honest pools receive a reward proportional to their
+    computing power
+* Show how selfish mining allows pools to earn more than their computing power.
+* Show how, for a selfish pool, the bigger it is the more it earns.
+    This shows that pool size ~ propagation factor (gamma)
+* Show how pools are more robust to selfish mining, due to them being more connected
+* Something about pool connectivity
+* Show when a banning attack is effect
+    for instance,
+
+Graphs:
+* Relative Reward by Pool Power (RR/PP), 3 lines:
+    1. Linear y=x, expected reward of honest miners
+    2. Scatter of the rewards of an honest pools, each point is averaged over 10 trials
+    3. Scatter of the rewards of a selfish pools, each point is averaged over 10 trials
+
+* RR/PP, with 5 lines, all selfish pools:
+    1. Pool with baseline size and connectivity
+    2/3. Pool with low/high size and average connectivity
+    4/5. Pool with average size and low/high
+
+* RR/PP with 4 lines:
+    1/2. Reward of selfish pool with high size and connectivity with first/random tie breaking.
+    3/4. Reward of selfish pool with low size and connectivity with first/random tie breaking.
