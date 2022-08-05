@@ -62,10 +62,10 @@ def rr_by_power_exp():
     print('The total runtime is ', datetime.now() - start)
 
 
-def plot_graph1():
+def plot_figure1():
     results = {}
     args = {'num-nodes': 1000, 'turns': 1000, 'num-pools': 2, 'prints': 'parallel',
-            'tie-breaking': 'first', 'pool-sizes': 0.8, 'pool-connectivity': 0.5}
+            'tie-breaking': 'first', 'pool-sizes': 0.3, 'pool-connectivity': 0.5}
 
     for selfish_mining in [False, True]:
         name = 'Selfish' if selfish_mining else 'Honest'
@@ -81,9 +81,14 @@ def plot_graph1():
                 outf = args_to_outf(args, flags)
                 run_result = json.load(outf.open())
                 results[name][power].append(run_result['relative_rewards'][0])
-    plt.plot([0, 0.5], [0, 0.5], label='Expected', ls='--')
+    plotting.plot_expectation()
     plotting.plot_dict(results)
+    plt.xlabel('Mining Power')
+    plt.ylabel('Relative Revenue')
+    plt.title('Comparison of Honest and Selfish Mining')
+    plt.savefig('plots/figure1.png')
+    plt.show()
 
 
 if __name__ == '__main__':
-    rr_by_power_exp()
+    plot_figure1()
