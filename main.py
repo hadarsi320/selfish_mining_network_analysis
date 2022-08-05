@@ -11,8 +11,7 @@ import networkx as nx
 import numpy as np
 from networkx import Graph
 
-from plotting import draw_graph, plot_relative_reward
-from utils import sample_sum_to, print_progress
+from utils import sample_sum_to, print_progress, draw_graph, plot_relative_reward
 
 
 class Block:
