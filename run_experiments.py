@@ -1,13 +1,17 @@
-import sys
+import json
 from datetime import datetime
 from multiprocessing import Pool
 from pathlib import Path
 
 import numpy as np
+from matplotlib import pyplot as plt
 from tqdm import tqdm
 
+import plotting
 from main import mining_simulation
 from utils import convert_args_dict
+
+POWER_RANGE = np.arange(0.05, 0.5, 0.05).round(2)
 
 
 def args_to_outf(args, flags):
@@ -29,7 +33,7 @@ def rr_by_power_exp():
         for selfish_mining in [False, True]:
             for size in [0.3]:
                 for connectivity in [0.1, 0.5, 0.9]:
-                    for power in np.arange(0.05, 0.5, 0.05).round(2):
+                    for power in POWER_RANGE:
                         for seed in range(5):
                             args = default_args.copy()
                             flags = default_flags.copy()
@@ -56,6 +60,29 @@ def rr_by_power_exp():
             pass
 
     print('The total runtime is ', datetime.now() - start)
+
+
+def plot_graph1():
+    results = {}
+    args = {'num-nodes': 1000, 'turns': 1000, 'num-pools': 2, 'prints': 'parallel',
+            'tie-breaking': 'first', 'pool-sizes': 0.8, 'pool-connectivity': 0.5}
+
+    for selfish_mining in [False, True]:
+        name = 'Selfish' if selfish_mining else 'Honest'
+        results[name] = {}
+        flags = []
+        if selfish_mining:
+            flags.append('selfish-mining')
+        for power in POWER_RANGE:
+            args['pool-powers'] = power
+            results[name][power] = []
+            for seed in range(5):
+                args['seed'] = seed
+                outf = args_to_outf(args, flags)
+                run_result = json.load(outf.open())
+                results[name][power].append(run_result['relative_rewards'][0])
+    plt.plot([0, 0.5], [0, 0.5], label='Expected', ls='--')
+    plotting.plot_dict(results)
 
 
 if __name__ == '__main__':
