@@ -16,7 +16,7 @@ def plot_figure1():
     """
     results = {}
     args = {'num-nodes': 1000, 'turns': 1000, 'num-pools': 2, 'prints': 'parallel',
-            'tie-breaking': 'first', 'pool-sizes': 0.3, 'pool-connectivity': 0.5}
+            'tie-breaking': 'first', 'pool-sizes': 0.5, 'pool-connectivity': 0.5}
 
     for selfish_mining in [False, True]:
         name = 'Selfish' if selfish_mining else 'Honest'
@@ -36,7 +36,6 @@ def plot_figure1():
     utils.plot_dict(results)
     plt.xlabel('Mining Power')
     plt.ylabel('Relative Revenue')
-    plt.title('Comparison of Honest and Selfish Mining')
     plt.savefig('plots/figure1.png')
     plt.show()
 
@@ -91,9 +90,9 @@ def plot_figure3():
         for size, connectivity in [(0.1, 0.1), (0.9, 0.9)]:
             name = tie_breaking.title() + ' Tie Breaking'
             if size == 0.1:
-                name += ' High Gamma'
+                name += ' Low $\gamma$'
             else:
-                name += ' Low Gamma'
+                name += ' High $\gamma$'
             args['pool-sizes'] = size
             args['pool-connectivity'] = connectivity
             results[name] = collect_results(args, flags)
@@ -104,3 +103,9 @@ def plot_figure3():
     plt.ylabel('Relative Revenue')
     plt.savefig('plots/figure3.png')
     plt.show()
+
+
+if __name__ == '__main__':
+    plot_figure1()
+    plot_figure2()
+    plot_figure3()
