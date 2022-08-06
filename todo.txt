@@ -22,7 +22,7 @@ Graphs:
 * RR/PP, with 5 lines, all selfish pools:
     1. Pool with baseline size and connectivity
     2/3. Pool with low/high size and average connectivity
-    4/5. Pool with average size and low/high
+    4/5. Pool with average size and low/high connectivity
 
 * RR/PP with 4 lines:
     1/2. Reward of selfish pool with high size and connectivity with first/random tie breaking.
