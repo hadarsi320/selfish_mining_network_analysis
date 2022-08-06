@@ -92,7 +92,7 @@ def plot_dict(results):
     for key in results:
         x = results[key].keys()
         y = [np.mean(l) for l in results[key].values()]
-        plt.plot(x, y, label=key)
+        plt.plot(x, y, label=key, marker='.')
     plt.legend()
 
 
